@@ -3,6 +3,26 @@
 As of 2026-11-05. This file records observed results separately from the target
 architecture. No claim of full unattended V1 completion is made.
 
+## Production launch checkpoint — 2026-11-05
+
+Minimal hardening adds cross-day vacancy alert identities, isolated score/config
+failures, noninteractive Gmail, bounded AI input/output/timeout/retries, safe
+provider errors, separate hours evidence, 24h failed-score cooldown and complete
+run statistics. **174 tests passed** and Ruff passed. No AI agents added.
+
+Live isolated checks: both boards returned 5 jobs; Gmail recovered using the
+existing alternate token (private default updated). All-source run: 37 observations,
+34 unique records, 19 scoring-eligible. Process replay: 0 new, 0 changed,
+37 unchanged. Two explicitly approved scores succeeded for $0.00120790 total,
+0 AI-shortlisted; the separate rule-only run had 22 review candidates. One daily
+Telegram summary was acknowledged, later runs did not send a second message.
+Restore copy: integrity ok, 34 records, outbox preserved; Applied/Skipped persisted
+after reopen with two idempotent events, without changing actual application state.
+
+See [detailed verified findings and limits](PRODUCTION_AUDIT.md) and the
+[Ubuntu runbook](PRODUCTION_RUNBOOK.md). Configuration is prepared only; no remote
+host was modified, no timer enabled, and production readiness is not claimed.
+
 ## Startup recovery — 2026-11-05
 
 The user's interrupted tracebacks stopped while importing OpenAI/Pydantic and

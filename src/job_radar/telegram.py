@@ -42,6 +42,10 @@ class TelegramTransport(Protocol):
     ) -> list[dict[str, Any]]: ...
 
 
+class TelegramRejectedRequest(RuntimeError):
+    """A definitive HTTP 4xx rejection; no message was accepted."""
+
+
 class TelegramApiClient:
     def __init__(self, bot_token: str) -> None:
         self._base_url = f"https://api.telegram.org/bot{bot_token}"
@@ -108,7 +112,8 @@ class TelegramApiClient:
             with urllib.request.urlopen(request, timeout=timeout) as response:
                 result = json.loads(response.read().decode())
         except urllib.error.HTTPError as error:
-            raise RuntimeError(
+            kind = TelegramRejectedRequest if 400 <= error.code < 500 else RuntimeError
+            raise kind(
                 f"Telegram API HTTP {error.code} during {method}"
             ) from None
         except (urllib.error.URLError, TimeoutError, OSError) as error:
@@ -117,7 +122,7 @@ class TelegramApiClient:
                 f"{type(error).__name__}"
             ) from None
         if not result.get("ok"):
-            raise RuntimeError(f"Telegram API rejected {method}")
+            raise TelegramRejectedRequest(f"Telegram API rejected {method}")
         return result["result"]
 
 

@@ -82,3 +82,15 @@ def test_openai_provider_separates_score_and_draft_responses() -> None:
     assert score_result.score.match_score == 82
     assert draft_result.draft.cover_letter == "Application text"
     assert rewrite_result.usage.total_tokens == 444
+    assert responses.calls[0]["store"] is False
+    assert responses.calls[0]["max_output_tokens"] == 1200
+
+
+def test_oversize_ai_input_is_rejected_before_request():
+    import pytest
+    responses = FakeResponses()
+    provider = OpenAIProvider("test-key", "test-model", client=SimpleNamespace(responses=responses),
+                              max_input_bytes=1024)
+    with pytest.raises(ValueError, match="byte limit"):
+        provider.score({"facts": "x" * 2000}, vacancy(), False)
+    assert responses.calls == []

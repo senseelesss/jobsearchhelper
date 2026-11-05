@@ -1,5 +1,6 @@
 #!/bin/sh
 set -eu
+umask 077
 PROJECT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 CACHE_DIR=${JOB_RADAR_CACHE_DIR:-"${XDG_CACHE_HOME:-$HOME/.cache}/job-radar"}
 ENV_DIR=${JOB_RADAR_VENV:-"$CACHE_DIR/venv"}

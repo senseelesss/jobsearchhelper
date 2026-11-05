@@ -192,6 +192,14 @@ CREATE TABLE IF NOT EXISTS notification_outbox (
     message_id INTEGER,
     updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS daily_alert_items (
+    chat_hash TEXT NOT NULL,
+    dedupe_key TEXT NOT NULL,
+    semantic_key TEXT NOT NULL,
+    notification_key TEXT NOT NULL,
+    PRIMARY KEY (chat_hash, dedupe_key),
+    FOREIGN KEY (notification_key) REFERENCES notification_outbox(notification_key)
+);
 """
 
 MIGRATION_COLUMNS = {

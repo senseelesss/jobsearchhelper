@@ -114,7 +114,13 @@ def _daily(args, settings):
     from job_radar.http import HttpClient
     from job_radar.sources.browser import PlaywrightClient
     from job_radar.telegram import TelegramApiClient
-    searches = load_searches(Path(args.searches))
+    from job_radar.errors import error_label
+    initial_errors = []
+    try:
+        searches = load_searches(Path(args.searches))
+    except Exception as error:
+        searches = []
+        initial_errors.append(f"Search configuration: {error_label(error)}")
     client = PlaywrightClient() if args.transport == "playwright" else HttpClient(15, 2, 1)
     def collector(url):
         return collect_search(client, url, limit=args.limit, max_pages=args.pages, details=args.details)
@@ -122,28 +128,42 @@ def _daily(args, settings):
         from job_radar.gmail import gmail_service, fetch_messages
         if not settings.token_path.is_file():
             raise RuntimeError("Authorize Gmail interactively with backfill before daily runs")
-        service = gmail_service(settings.credentials_path, settings.token_path)
+        service = gmail_service(settings.credentials_path, settings.token_path, interactive=False)
         return fetch_messages(service, "newer_than:10d (from:jobalerts-noreply@linkedin.com OR from:donotreply@jobalert.indeed.com)", limit=args.email_limit)
     provider = None
     profile = None
     if args.score_limit:
         from job_radar.candidate import load_candidate_profile
         from job_radar.ai import OpenAIProvider
-        profile = load_candidate_profile(settings.candidate_profile_path)
-        if settings.openai_api_key:
-            provider = OpenAIProvider(settings.openai_api_key, settings.openai_model)
+        try:
+            profile = load_candidate_profile(settings.candidate_profile_path)
+            if not any(profile.get(key) for key in ("experience", "projects", "education")):
+                raise ValueError("Fill the private candidate profile before scoring")
+            if settings.openai_api_key:
+                provider = OpenAIProvider(
+                    settings.openai_api_key, settings.openai_model,
+                    timeout_seconds=settings.openai_timeout_seconds,
+                    max_retries=settings.openai_max_retries,
+                    max_output_tokens=settings.openai_max_output_tokens,
+                    max_input_bytes=settings.openai_max_input_bytes,
+                )
+        except Exception as error:
+            initial_errors.append(f"Scoring configuration: {error_label(error)}")
     if args.telegram and (not settings.telegram_bot_token or not settings.telegram_chat_id):
-        raise ValueError("Run telegram-connect before enabling daily delivery")
+        initial_errors.append("Telegram configuration missing; run telegram-connect")
     result = daily_cycle(
         Path(args.database), searches, collector,
         fetch_emails=None if args.no_email else email_fetcher,
         provider=provider, profile=profile, score_limit=args.score_limit,
-        telegram=TelegramApiClient(settings.telegram_bot_token) if args.telegram else None,
+        telegram=TelegramApiClient(settings.telegram_bot_token)
+        if args.telegram and settings.telegram_bot_token and settings.telegram_chat_id else None,
         chat_id=settings.telegram_chat_id, output=Path(args.output),
         import_workbook=Path(args.import_xlsx) if args.import_xlsx else None,
         input_cost_per_million=settings.openai_input_cost_per_million,
         output_cost_per_million=settings.openai_output_cost_per_million,
         on_progress=lambda message: print(message, flush=True),
+        initial_errors=initial_errors,
+        score_retry_failed=args.score_retry_failed,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
     if result["status"] != "success":
@@ -724,6 +744,8 @@ def parser() -> argparse.ArgumentParser:
     daily.add_argument("--email-limit", type=int, choices=range(1,1001), default=100, metavar="1..1000")
     daily.add_argument("--no-email", action="store_true")
     daily.add_argument("--score-limit", type=int, choices=range(26), default=0, metavar="0..25")
+    daily.add_argument("--score-retry-failed", action="store_true",
+                       help="Retry failed scores only; same paid-call limit applies")
     daily.add_argument("--telegram", action="store_true", help="Send a daily digest to the configured chat")
     daily.add_argument("--import-xlsx", help="Import explicit status edits before collection")
     application = commands.add_parser("application-set")
@@ -794,6 +816,8 @@ def parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    import os
+    os.umask(0o077)
     args = parser().parse_args()
     settings = Settings.from_env()
 

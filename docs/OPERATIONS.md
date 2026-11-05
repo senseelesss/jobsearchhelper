@@ -4,6 +4,11 @@ This implementation runs locally. Linux service examples are provided, but no
 server or scheduler has been installed by this change. Use a test DB until the
 live checks below pass on your machine.
 
+For launch evidence and the prepared Ubuntu deployment, use
+[PRODUCTION_AUDIT.md](PRODUCTION_AUDIT.md) and
+[PRODUCTION_RUNBOOK.md](PRODUCTION_RUNBOOK.md). The latter supersedes the earlier
+deployment outline at the bottom of this page.
+
 ## Setup after pulling the update
 
 ```bash
@@ -111,10 +116,17 @@ title/company/location matching and is not a guarantee of identifying every repo
 ## Optional AI scoring
 
 The new daily command makes **no paid calls by default**. Explicitly set
-`--score-limit 3` to select at most three vacancies for scoring, using the existing
+`--score-limit 3` to select at most three active eligible unapplied vacancies for scoring, using the existing
 candidate profile and model configuration. Draft generation remains separate.
 An unavailable model does not erase collected vacancies or prevent an unscored
 review queue. Existing price settings must be maintained for cost estimates.
+With scoring enabled, only successful apply/strong_apply or review>=50 scores
+enter alerts; failures/unscored roles remain in Excel. Unknown hours are a separate
+field, not a score penalty. Explicit full-time-only roles are excluded from daily
+alerts. Without scoring, the digest clearly labels its rule-based shortlist.
+Requests have configurable input/output/timeout/retry bounds in `.env.example`.
+Failed scores can retry after 24h within the daily call budget; use
+`--score-retry-failed` only for an explicit bounded retry of failed inputs.
 
 ## Connect Telegram
 
@@ -148,6 +160,10 @@ Delivery has a durable per-chat/per-Vienna-day identity. An acknowledged digest
 is not resent on replay. A timeout/crash after starting a send is marked unknown
 and not blindly retried; inspect Telegram and the outbox before manual recovery.
 Exactly-once delivery across SQLite and Telegram cannot be guaranteed.
+Per-chat vacancy identities also suppress previously alerted jobs on later days.
+Pending backlog waits for a later day. Definitive HTTP 4xx rejections are safe to
+retry after fixing their cause; ambiguous sends require inspection. Per-run JSON
+reports and full counters are retained alongside SQLite run history.
 
 ## Application states and Excel
 

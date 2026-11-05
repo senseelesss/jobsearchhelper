@@ -9,10 +9,19 @@ User=jobradar
 WorkingDirectory=/opt/job-radar
 EnvironmentFile=/etc/job-radar.env
 Environment=JOB_RADAR_DB=/var/lib/job-radar/jobs.db
-ExecStart=/opt/job-radar/.venv/bin/python -m job_radar.cli telegram-poll
+Environment=HOME=/var/lib/job-radar
+Environment=PYTHONPYCACHEPREFIX=/var/cache/job-radar/pycache
+Environment=PYTHONUNBUFFERED=1
+StateDirectory=job-radar
+StateDirectoryMode=0700
+CacheDirectory=job-radar
+CacheDirectoryMode=0700
+ExecStart=/opt/job-radar/.venv/bin/python -u -m job_radar.cli telegram-poll
 Restart=always
 RestartSec=15
 UMask=0077
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target

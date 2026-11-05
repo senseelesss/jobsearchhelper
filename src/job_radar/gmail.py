@@ -23,7 +23,7 @@ class BoundedRefreshRequest:
         return Request()(*args, **kwargs)
 
 
-def _credentials(credentials_path: Path, token_path: Path) -> Credentials:
+def _credentials(credentials_path: Path, token_path: Path, *, interactive=True) -> Credentials:
     credentials: Credentials | None = None
 
     if token_path.exists():
@@ -32,6 +32,8 @@ def _credentials(credentials_path: Path, token_path: Path) -> Credentials:
     if credentials and credentials.expired and credentials.refresh_token:
         credentials.refresh(BoundedRefreshRequest())
     elif not credentials or not credentials.valid:
+        if not interactive:
+            raise RuntimeError("Gmail needs interactive reauthorization before unattended use")
         if not credentials_path.exists():
             raise FileNotFoundError(
                 f"Missing OAuth client file: {credentials_path}. See README.md."
@@ -45,8 +47,8 @@ def _credentials(credentials_path: Path, token_path: Path) -> Credentials:
     return credentials
 
 
-def gmail_service(credentials_path: Path, token_path: Path) -> Any:
-    credentials = _credentials(credentials_path, token_path)
+def gmail_service(credentials_path: Path, token_path: Path, *, interactive=True) -> Any:
+    credentials = _credentials(credentials_path, token_path, interactive=interactive)
     return build(
         "gmail",
         "v1",

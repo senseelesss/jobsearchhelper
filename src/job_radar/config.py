@@ -20,6 +20,10 @@ class Settings:
     openai_output_cost_per_million: float = 1.25
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
+    openai_timeout_seconds: float = 30
+    openai_max_retries: int = 0
+    openai_max_output_tokens: int = 1200
+    openai_max_input_bytes: int = 48000
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -54,4 +58,8 @@ class Settings:
             ),
             telegram_bot_token=os.getenv("TELEGRAM_BOT_TOKEN", ""),
             telegram_chat_id=os.getenv("TELEGRAM_CHAT_ID", ""),
+            openai_timeout_seconds=float(os.getenv("OPENAI_TIMEOUT_SECONDS", "30")),
+            openai_max_retries=int(os.getenv("OPENAI_MAX_RETRIES", "0")),
+            openai_max_output_tokens=int(os.getenv("OPENAI_MAX_OUTPUT_TOKENS", "1200")),
+            openai_max_input_bytes=int(os.getenv("OPENAI_MAX_INPUT_BYTES", "48000")),
         )

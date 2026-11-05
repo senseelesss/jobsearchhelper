@@ -9,6 +9,10 @@ The next milestone is reliable multi-source collection. Read `docs/MVP_AUDIT.md`
 `docs/ARCHITECTURE.md`, `docs/MVP_V1.md`, and `docs/SOURCES.md`; target architecture is explicitly
 distinguished from implemented behavior.
 Read `docs/PROGRESS.md` for verified live runs and current checkpoint status.
+Read `docs/PRODUCTION_AUDIT.md` and `docs/PRODUCTION_RUNBOOK.md` for the launch
+checkpoint. Production uses `daily`, not the legacy email-only `run`/`telegram-send`.
+Do not deploy/enable remote services without owner approval. Ubuntu runtime,
+scheduled operation and seven-day acceptance remain unverified.
 Bounded pagination/details, saved search URLs, multi-source daily ingestion,
 application events, Excel interchange and optional daily Telegram are implemented.
 Read `docs/OPERATIONS.md` for current commands. Server units are examples, not an

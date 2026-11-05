@@ -51,6 +51,9 @@ def export_workbook(rows, output: Path):
         ("AI оцінка 0–100", "match_score", 20),
         ("Рекомендація", "recommendation", 20),
         ("Впевненість AI", "score_confidence", 20),
+        ("Зайнятість (окремо від AI)", "hours_status", 26),
+        ("Дані про години", "hours_evidence", 30),
+        ("Стан AI", "score_status", 18),
     ]
     for index, (label, _, width) in enumerate(columns, 1):
         sheet.cell(5, index, label)
@@ -102,7 +105,7 @@ def export_workbook(rows, output: Path):
             cell.fill = PatternFill("solid", fgColor="243B53")
             cell.alignment = Alignment(wrap_text=True, horizontal="center", vertical="center")
         page.row_dimensions[5].height = 32
-        page.auto_filter.ref = f"A5:{'O' if page == sheet else 'D'}{max(6, page.max_row)}"
+        page.auto_filter.ref = f"A5:{'R' if page == sheet else 'D'}{max(6, page.max_row)}"
     output.parent.mkdir(parents=True, exist_ok=True)
     with NamedTemporaryFile(suffix=".xlsx", dir=output.parent, delete=False) as temporary:
         name = Path(temporary.name)

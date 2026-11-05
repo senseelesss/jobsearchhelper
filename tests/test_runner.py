@@ -296,7 +296,7 @@ def test_one_scoring_failure_does_not_stop_other_vacancies(
     assert report.counts["scored"] == 1
     assert report.counts["telegram_sent"] == 1
     assert failed is not None
-    assert failed["error"] == "mock provider failure"
+    assert failed["error"] == "RuntimeError"
     assert retried.counts["unchanged"] == 2
     assert retried.counts["scored"] == 1
 

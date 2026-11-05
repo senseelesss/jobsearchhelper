@@ -2,6 +2,14 @@
 
 Vacancy collector for Gmail alerts and direct LinkedIn/karriere.at searches.
 
+Production launch checkpoint (2026-11-05): local collection, two real AI scores,
+Telegram acknowledgement and restart replay are verified. Ubuntu hosting and
+scheduled operation are **not deployed or production-ready yet**.
+Read the [launch audit](docs/PRODUCTION_AUDIT.md) and
+[Ubuntu deployment runbook](docs/PRODUCTION_RUNBOOK.md). Use `daily` for production;
+the older email-only `run`/`telegram-send` commands below are separate workflows
+and must not be scheduled alongside it.
+
 The first command reads the last N days of Gmail alerts, extracts individual jobs,
 removes tracking parameters, deduplicates them by source ID, and stores them in SQLite.
 

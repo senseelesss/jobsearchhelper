@@ -9,6 +9,15 @@ User=jobradar
 WorkingDirectory=/opt/job-radar
 EnvironmentFile=/etc/job-radar.env
 Environment=PLAYWRIGHT_BROWSERS_PATH=/var/cache/job-radar/browsers
-ExecStart=/opt/job-radar/.venv/bin/python -m job_radar.cli daily --searches /etc/job-radar-searches.yaml --database /var/lib/job-radar/jobs.db --output /var/lib/job-radar/output --telegram
+Environment=HOME=/var/lib/job-radar
+Environment=PYTHONPYCACHEPREFIX=/var/cache/job-radar/pycache
+Environment=PYTHONUNBUFFERED=1
+StateDirectory=job-radar
+StateDirectoryMode=0700
+CacheDirectory=job-radar
+CacheDirectoryMode=0700
+ExecStart=/bin/sh /opt/job-radar/deploy/run-daily.sh
 TimeoutStartSec=25min
 UMask=0077
+StandardOutput=journal
+StandardError=journal

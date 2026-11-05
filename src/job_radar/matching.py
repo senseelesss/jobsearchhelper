@@ -16,8 +16,9 @@ from job_radar.enrichment_adapters.common import description_hash
 from job_radar.exporting import semantic_groups
 from job_radar.storage import JobRepository
 from job_radar.availability import group_expired, is_expired
+from job_radar.errors import error_label
 
-SCORE_PROMPT_VERSION = "candidate-score-v2"
+SCORE_PROMPT_VERSION = "candidate-score-v3-hours-independent"
 DRAFT_PROMPT_VERSION = "application-draft-v1"
 APPLICATION_RECOMMENDATIONS = {"strong_apply", "apply", "review"}
 
@@ -141,6 +142,7 @@ def score_jobs(
     input_cost_per_million: float = 0,
     output_cost_per_million: float = 0,
     semantic_keys: set[str] | None = None,
+    retry_after_seconds: float | None = None,
 ) -> ScoreSummary:
     profile_hash = candidate_profile_hash(profile)
     all_candidates = scoring_candidates(repository, only, semantic_keys)
@@ -210,8 +212,13 @@ def score_jobs(
             provider.model,
         )
         if failed_attempt and not retry_failed:
-            skipped += 1
-            continue
+            failed_at = datetime.fromisoformat(failed_attempt["created_at"])
+            if failed_at.tzinfo is None:
+                failed_at = failed_at.replace(tzinfo=timezone.utc)
+            age = (datetime.now(timezone.utc) - failed_at).total_seconds()
+            if retry_after_seconds is None or age < retry_after_seconds:
+                skipped += 1
+                continue
 
         created_at = _now()
         try:
@@ -251,7 +258,7 @@ def score_jobs(
             scored += 1
             estimated_cost_usd += cost
         except Exception as error:
-            errors.append(str(error))
+            errors.append(error_label(error))
             repository.save_job_score(
                 {
                     "score_cache_key": cache_key,
@@ -269,7 +276,7 @@ def score_jobs(
                     "estimated_cost_usd": 0,
                     "response_id": "",
                     "score_status": "failed",
-                    "score_error": str(error),
+                    "score_error": error_label(error),
                     "created_at": created_at,
                 }
             )
@@ -429,7 +436,7 @@ def draft_jobs(
             )
             estimated_cost_usd += cost
         except Exception as error:
-            errors.append(str(error))
+            errors.append(error_label(error))
             repository.save_application_draft(
                 _draft_values(
                     row,
@@ -437,7 +444,7 @@ def draft_jobs(
                     provider.model,
                     {},
                     "failed",
-                    str(error),
+                    error_label(error),
                     usage,
                     0,
                     ",".join(value for value in response_ids if value),
