@@ -89,10 +89,14 @@ prompt/schema overhead at the listed rates; ordinary runs should use less.
 Actual estimates use returned tokens. Failed/timed-out requests can be billed
 without returning usage; reported costs are not an invoice or a hard ceiling.
 
-For the default two searches, Gmail has a 120s between-message budget, each search
-has a 120s between-request budget, and requests have their own timeouts. These
+For the prepared six one-page searches, Gmail has a 120s between-message budget, each search
+has a 120s between-request budget, and requests have their own timeouts.
+Eligible enrichment adds a global budget of five GET operations/120s; direct
+unscreened detail fetching defaults to zero. See MACOS_STAGING.md for current
+two-tier review and scoring fairness; provider unavailability retains UNSCORED
+review candidates in Telegram instead of hiding them. These
 budgets may overrun by the current request; the service has a final 25-minute
-limit. Keep the default budgets initially. Raising source count, score limits,
+limit. Keep the default budgets initially. Raising source count, enrichment/score limits,
 SDK retries or timeouts requires reviewing the whole-run timeout.
 
 ### Gmail reauthorization if a token is revoked

@@ -120,10 +120,17 @@ The new daily command makes **no paid calls by default**. Explicitly set
 candidate profile and model configuration. Draft generation remains separate.
 An unavailable model does not erase collected vacancies or prevent an unscored
 review queue. Existing price settings must be maintained for cost estimates.
-With scoring enabled, only successful apply/strong_apply or review>=50 scores
-enter alerts; failures/unscored roles remain in Excel. Unknown hours are a separate
-field, not a score penalty. Explicit full-time-only roles are excluded from daily
-alerts. Without scoring, the digest clearly labels its rule-based shortlist.
+Daily alerts have two tiers for every scoring budget: A contains current successful
+apply/strong_apply or review>=50 scores; B contains actionable unscored eligible/
+review roles, clearly labelled UNSCORED. Provider unavailability does not hide B.
+Failed scores, AI skip results, hard rejects and Applied/Skipped stay excluded.
+Unknown hours are separate from technical fit; explicit weekly evidence produces
+a distinct 20–25h target assessment. See [macOS staging findings](MACOS_STAGING.md).
+
+Daily defaults to --details 0 and --enrich-limit 5 (global HTTP GET budget), using
+the existing cache/rate limits before scoring. Full requirements are re-screened;
+missing JDs remain provisional. Set --enrich-limit 0 for an offline replay.
+Only missing eligible candidates are selected; no historical bulk refresh occurs.
 Requests have configurable input/output/timeout/retry bounds in `.env.example`.
 Failed scores can retry after 24h within the daily call budget; use
 `--score-retry-failed` only for an explicit bounded retry of failed inputs.

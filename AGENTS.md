@@ -9,6 +9,10 @@ The next milestone is reliable multi-source collection. Read `docs/MVP_AUDIT.md`
 `docs/ARCHITECTURE.md`, `docs/MVP_V1.md`, and `docs/SOURCES.md`; target architecture is explicitly
 distinguished from implemented behavior.
 Read `docs/PROGRESS.md` for verified live runs and current checkpoint status.
+Read `docs/MACOS_STAGING.md` for the current A/B review policy, bounded daily
+enrichment, scoring fairness, six search profiles and state-transfer checklist.
+Unscored actionable review must survive missing AI availability; failed scores,
+hard rejects and Applied/Skipped must not be promoted. Target hours: 20–25/week.
 Read `docs/PRODUCTION_AUDIT.md` and `docs/PRODUCTION_RUNBOOK.md` for the launch
 checkpoint. Production uses `daily`, not the legacy email-only `run`/`telegram-send`.
 Do not deploy/enable remote services without owner approval. Ubuntu runtime,

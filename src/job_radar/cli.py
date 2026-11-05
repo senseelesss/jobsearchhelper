@@ -132,14 +132,17 @@ def _daily(args, settings):
         return fetch_messages(service, "newer_than:10d (from:jobalerts-noreply@linkedin.com OR from:donotreply@jobalert.indeed.com)", limit=args.email_limit)
     provider = None
     profile = None
-    if args.score_limit:
-        from job_radar.candidate import load_candidate_profile
-        from job_radar.ai import OpenAIProvider
+    from job_radar.candidate import load_candidate_profile
+    try:
+        profile = load_candidate_profile(settings.candidate_profile_path)
+    except Exception as error:
+        initial_errors.append(f"Scoring profile: {error_label(error)}")
+    if args.score_limit and profile is not None:
         try:
-            profile = load_candidate_profile(settings.candidate_profile_path)
             if not any(profile.get(key) for key in ("experience", "projects", "education")):
                 raise ValueError("Fill the private candidate profile before scoring")
             if settings.openai_api_key:
+                from job_radar.ai import OpenAIProvider
                 provider = OpenAIProvider(
                     settings.openai_api_key, settings.openai_model,
                     timeout_seconds=settings.openai_timeout_seconds,
@@ -164,6 +167,11 @@ def _daily(args, settings):
         on_progress=lambda message: print(message, flush=True),
         initial_errors=initial_errors,
         score_retry_failed=args.score_retry_failed,
+        score_model=settings.openai_model,
+        enrichment_client=HttpClient(settings.enrichment_timeout_seconds,
+                                     settings.enrichment_rate_limit_seconds,
+                                     settings.enrichment_retries),
+        enrichment_limit=args.enrich_limit,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
     if result["status"] != "success":
@@ -740,7 +748,9 @@ def parser() -> argparse.ArgumentParser:
     daily.add_argument("--transport", choices=("playwright", "http"), default="playwright")
     daily.add_argument("--pages", type=int, choices=range(1,11), default=2, metavar="1..10")
     daily.add_argument("--limit", type=int, choices=range(1,501), default=25, metavar="1..500")
-    daily.add_argument("--details", type=int, choices=range(26), default=5, metavar="0..25")
+    daily.add_argument("--details", type=int, choices=range(26), default=0, metavar="0..25")
+    daily.add_argument("--enrich-limit", type=int, choices=range(26), default=5, metavar="0..25",
+                       help="Global eligible JD request budget before scoring")
     daily.add_argument("--email-limit", type=int, choices=range(1,1001), default=100, metavar="1..1000")
     daily.add_argument("--no-email", action="store_true")
     daily.add_argument("--score-limit", type=int, choices=range(26), default=0, metavar="0..25")

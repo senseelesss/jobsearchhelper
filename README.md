@@ -10,6 +10,11 @@ Read the [launch audit](docs/PRODUCTION_AUDIT.md) and
 the older email-only `run`/`telegram-send` commands below are separate workflows
 and must not be scheduled alongside it.
 
+macOS staging now keeps an explicit UNSCORED review tier alongside AI
+recommendations, enriches eligible missing JDs within a global request budget,
+and reports per-run versus persistent funnel totals. See the
+[offline comparison, six searches and transfer checklist](docs/MACOS_STAGING.md).
+
 The first command reads the last N days of Gmail alerts, extracts individual jobs,
 removes tracking parameters, deduplicates them by source ID, and stores them in SQLite.
 

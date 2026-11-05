@@ -1,6 +1,7 @@
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from typing import Any
+import time
 
 from job_radar.enrichment_adapters import adapter_for
 from job_radar.enrichment_adapters.common import (
@@ -10,6 +11,7 @@ from job_radar.enrichment_adapters.common import (
 from job_radar.exporting import semantic_groups
 from job_radar.http import HttpClient
 from job_radar.storage import JobRepository
+from job_radar.errors import error_label
 
 FETCH_STATUSES = (
     "success",
@@ -65,13 +67,13 @@ def _fetch(
         parsed = adapter_for(str(row["source"])).parse(
             response.body, response.status_code
         )
-    except (RuntimeError, ValueError) as error:
+    except Exception as error:
         return EnrichmentResult(
             description="",
             description_language="",
             fetched_at=fetched_at,
             fetch_status="failed",
-            fetch_error=str(error),
+            fetch_error=error_label(error),
             final_url=str(row["url"]),
             description_hash="",
             description_confidence="",
@@ -145,7 +147,11 @@ def enrich_jobs(
     semantic_keys: set[str] | None = None,
     max_age_hours: float = 24,
     refresh: bool = False,
+    request_limit: int | None = None,
+    max_seconds: float | None = None,
+    ordered_keys: list[str] | None = None,
 ) -> dict[str, int]:
+    started, requests, deferred = time.monotonic(), 0, 0
     def fresh(values) -> bool:
         if refresh:
             return False
@@ -164,13 +170,18 @@ def enrich_jobs(
     ]
     totals = dict.fromkeys(FETCH_STATUSES, 0)
 
-    for group in semantic_groups(rows):
+    groups = semantic_groups(rows)
+    if ordered_keys is not None:
+        order = {key: index for index, key in enumerate(ordered_keys)}
+        groups.sort(key=lambda group: order.get(group[0]["semantic_key"], len(order)))
+    for group in groups:
         if semantic_keys is not None and str(group[0]["semantic_key"]) not in semantic_keys:
             continue
         canonical = group[0]
         current_status = str(canonical["fetch_status"])
         has_valid_description = (
             current_status == "success" and bool(canonical["description"]) and fresh(canonical)
+            and canonical["description_confidence"] in {"medium", "high"}
         )
         if has_valid_description:
             refreshed = {
@@ -226,15 +237,22 @@ def enrich_jobs(
 
         first_failure: EnrichmentResult | None = None
         successful: EnrichmentResult | None = None
+        budget_hit = False
         for candidate in group:
             url = str(candidate["url"])
             cached = repository.cached_enrichment(url)
             if cached and (
-                (cached["fetch_status"] == "success" and fresh(cached))
+                (cached["fetch_status"] == "success" and fresh(cached)
+                 and cached["description_confidence"] in {"medium", "high"})
                 or (cached["fetch_status"] != "success" and not retry_failed and not refresh)
             ):
                 result = _result_from_cache(cached)
             else:
+                if ((request_limit is not None and requests >= request_limit)
+                        or (max_seconds is not None and time.monotonic()-started >= max_seconds)):
+                    budget_hit = True
+                    break
+                requests += 1
                 result = _fetch(candidate, client)
                 repository.cache_enrichment(url, result.to_dict())
 
@@ -243,6 +261,11 @@ def enrich_jobs(
                 break
             if first_failure is None:
                 first_failure = result
+
+        if budget_hit:
+            deferred += 1
+            if first_failure is None:
+                continue  # No request: do not poison this vacancy/cache with a fake failure.
 
         final_result = successful or first_failure or EnrichmentResult(
             description="",
@@ -272,4 +295,6 @@ def enrich_jobs(
         )
         totals[final_result.fetch_status] += 1
 
+    if request_limit is not None or max_seconds is not None:
+        totals.update(requests=requests, deferred=deferred)
     return totals

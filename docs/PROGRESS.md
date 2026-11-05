@@ -3,6 +3,27 @@
 As of 2026-11-05. This file records observed results separately from the target
 architecture. No claim of full unattended V1 completion is made.
 
+## macOS staging optimization — 2026-11-05
+
+Continues from 7e8ee5cc. Current daily review has Tier A AI recommendations and
+Tier B explicitly UNSCORED actionable review, independent of scoring budget or
+provider availability. Failed/skip/hard-rejected/applied/skipped rows stay excluded.
+Bounded daily enrichment reuses existing caches and re-screens new full JDs.
+Scoring prefers actionable/part-time/full-JD candidates with backlog fairness;
+cache hits and retry cooldowns do not consume paid call slots. Existing schema,
+callbacks, notification identities and immutable outbox are preserved.
+
+Saved JD coverage: 4 full/34 source records; email-backed 0/24, direct-only 4/10.
+Offline old/new comparison on separate copies, fake scores and mock Telegram:
+budget 2 review queue 2→20 (A=2/B=18); budget 5 5→20 (A=5/B=15);
+missing provider 0→20; budget 0 22→20 because two cached skips stay excluded.
+The original DB tables were unchanged. No new paid calls, real messages or remote
+deployment occurred. Details, runtime/cost estimates, scopes and transfer checklist
+are in [MACOS_STAGING.md](MACOS_STAGING.md). Six source URLs pass local validation;
+their current website filter semantics were not live-tested.
+Validation: **195 tests passed**, including a blank-profile publishable copy;
+Ruff, diff whitespace and shell syntax checks passed.
+
 ## Production launch checkpoint — 2026-11-05
 
 Minimal hardening adds cross-day vacancy alert identities, isolated score/config
