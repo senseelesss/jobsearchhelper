@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "job-radar"
+version = "0.1.0"
+description = "Email-first job alert collector for LinkedIn and Indeed"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "beautifulsoup4>=4.12,<5",
+  "google-api-python-client>=2.170,<3",
+  "google-auth-httplib2>=0.2,<1",
+  "google-auth-oauthlib>=1.2,<2",
+  "openai>=1.100,<3",
+  "openpyxl>=3.1,<4",
+  "pydantic>=2.11,<3",
+  "python-dotenv>=1.0,<2",
+  "PyYAML>=6.0,<7",
+]
+
+[project.optional-dependencies]
+scraping = [
+  "playwright==1.64.1",
+]
+dev = [
+  "pytest>=8.3,<9",
+  "ruff>=0.11,<1",
+]
+
+[project.scripts]
+job-radar = "job_radar.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+job_radar = ["screening_rules.v*.json"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+# Keep the project's established core checks stable across Ruff releases.
+select = ["E4", "E7", "E9", "F"]

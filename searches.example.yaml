@@ -1,0 +1,7 @@
+searches:
+  - name: karriere-python-vienna
+    enabled: true
+    url: https://www.karriere.at/jobs/python/wien
+  - name: linkedin-junior-python-vienna
+    enabled: true
+    url: https://www.linkedin.com/jobs/search/?keywords=python&location=Vienna%2C%20Austria&f_E=1%2C2&f_TPR=r604800

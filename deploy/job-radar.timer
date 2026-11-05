@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Job Radar at 08:00 Vienna time
+
+[Timer]
+OnCalendar=*-*-* 08:00:00 Europe/Vienna
+Persistent=true
+RandomizedDelaySec=60
+Unit=job-radar.service
+
+[Install]
+WantedBy=timers.target

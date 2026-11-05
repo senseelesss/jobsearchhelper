@@ -1,0 +1,18 @@
+[Unit]
+Description=Job Radar Telegram status callbacks
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=jobradar
+WorkingDirectory=/opt/job-radar
+EnvironmentFile=/etc/job-radar.env
+Environment=JOB_RADAR_DB=/var/lib/job-radar/jobs.db
+ExecStart=/opt/job-radar/.venv/bin/python -m job_radar.cli telegram-poll
+Restart=always
+RestartSec=15
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

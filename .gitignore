@@ -1,0 +1,15 @@
+.DS_Store
+.env
+.env.local
+.idea/
+.pytest_cache/
+.ruff_cache/
+.venv/
+__pycache__/
+*.py[cod]
+data/*
+!data/.gitkeep
+secrets/*
+!secrets/.gitkeep
+outputs/
+*.egg-info/

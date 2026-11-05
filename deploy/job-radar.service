@@ -1,0 +1,14 @@
+[Unit]
+Description=Job Radar daily collection and Telegram digest
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=jobradar
+WorkingDirectory=/opt/job-radar
+EnvironmentFile=/etc/job-radar.env
+Environment=PLAYWRIGHT_BROWSERS_PATH=/var/cache/job-radar/browsers
+ExecStart=/opt/job-radar/.venv/bin/python -m job_radar.cli daily --searches /etc/job-radar-searches.yaml --database /var/lib/job-radar/jobs.db --output /var/lib/job-radar/output --telegram
+TimeoutStartSec=25min
+UMask=0077

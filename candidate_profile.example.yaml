@@ -1,0 +1,21 @@
+version: candidate-profile-v1
+# Copy to data/candidate_profile.yaml and enter only your verified facts.
+# The private populated file is intentionally ignored by Git.
+name: ""
+location: Vienna, Austria
+target_roles:
+  - Junior Backend Developer
+  - Werkstudent Software Engineering
+  - Automation / Integration Developer
+core_skills:
+  languages: []
+  backend_and_integrations: []
+  databases: []
+  data: []
+  automation: []
+  tools: []
+  ai: []
+experience: []
+projects: []
+education: []
+languages: []

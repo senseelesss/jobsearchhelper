@@ -1,0 +1,87 @@
+{
+  "version": "screening-v1",
+  "seniority_rejections": [
+    "senior",
+    "sr",
+    "principal",
+    "lead",
+    "head",
+    "director"
+  ],
+  "function_rejections": {
+    "sales": [
+      "sales",
+      "account executive",
+      "business development"
+    ],
+    "accounting": [
+      "accounting",
+      "accountant",
+      "buchhalter",
+      "buchhaltung"
+    ],
+    "treasury": [
+      "treasury"
+    ],
+    "hr": [
+      "human resources",
+      "hr specialist",
+      "hr generalist",
+      "recruiter",
+      "recruiting",
+      "talent acquisition"
+    ],
+    "marketing": [
+      "marketing",
+      "communications manager",
+      "social media"
+    ]
+  },
+  "technical_terms": [
+    "backend",
+    "developer",
+    "development",
+    "engineer",
+    "engineering",
+    "software",
+    "data",
+    "python",
+    "node",
+    "typescript",
+    "automation",
+    "integration",
+    "api",
+    "application",
+    "app manager",
+    "technical",
+    "technology",
+    "it"
+  ],
+  "priority_terms": [
+    "junior",
+    "student",
+    "working student",
+    "werkstudent",
+    "intern",
+    "internship",
+    "entry level",
+    "entry-level",
+    "graduate",
+    "part time",
+    "part-time",
+    "teilzeit"
+  ],
+  "vienna_terms": [
+    "vienna",
+    "wien"
+  ],
+  "remote_terms": [
+    "remote",
+    "home office",
+    "homeoffice"
+  ],
+  "austria_terms": [
+    "austria",
+    "osterreich"
+  ]
+}
