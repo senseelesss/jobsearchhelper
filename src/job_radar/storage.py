@@ -782,7 +782,7 @@ class JobRepository:
             result = screen_job(
                 row["title"],
                 row["location"],
-                "\n".join(filter(None, (row["snippet"], row["description"]))),
+                row["description"] or row["snippet"],
                 rules=rules,
                 fetch_status="expired" if is_expired(dict(row)) else row["fetch_status"],
                 fetch_error=row["fetch_error"],

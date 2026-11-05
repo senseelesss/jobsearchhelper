@@ -115,6 +115,14 @@ title/company/location matching and is not a guarantee of identifying every repo
 
 ## Optional AI scoring
 
+Application priority is now separate from technical match. See
+[APPLICATION_PRIORITY.md](APPLICATION_PRIORITY.md) for the current HIGH/MEDIUM/LOW/
+EXCLUDED policy, configurable evidence rules and first-five ranking. Unknown
+hours stay in review; explicit full-time-only and incompatible seniority do not
+enter paid scoring or actionable notifications. Source data/history remain stored.
+Reports partition priorities and hours fits separately; exclusion reasons may
+overlap and must not be summed as unique vacancy counts.
+
 The new daily command makes **no paid calls by default**. Explicitly set
 `--score-limit 3` to select at most three active eligible unapplied vacancies for scoring, using the existing
 candidate profile and model configuration. Draft generation remains separate.

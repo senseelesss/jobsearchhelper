@@ -17,7 +17,7 @@ from job_radar.exporting import semantic_groups
 from job_radar.storage import JobRepository
 from job_radar.availability import group_expired, is_expired
 from job_radar.errors import error_label
-from job_radar.work_hours import assess_hours
+from job_radar.eligibility import assess_application
 
 SCORE_PROMPT_VERSION = "candidate-score-v3-hours-independent"
 DRAFT_PROMPT_VERSION = "application-draft-v1"
@@ -156,6 +156,10 @@ def scoring_plan(
     pending, cached, deferred = [], 0, 0
     now = datetime.now(timezone.utc)
     for vacancy in scoring_candidates(repository, only, semantic_keys):
+        vacancy['application_state'] = repository.application_for(vacancy['dedupe_key'])['state']
+        vacancy.update(assess_application(vacancy, profile))
+        if vacancy['application_eligibility']=='ineligible':
+            continue
         identity = (vacancy["semantic_key"], profile_hash, vacancy["description_hash"],
                     SCORE_PROMPT_VERSION, model)
         if repository.reusable_job_score(*identity):
@@ -174,26 +178,23 @@ def scoring_plan(
     new_keys = new_semantic_keys or set()
 
     def priority(row):
-        hours = assess_hours(row)
         return (
-            row["semantic_key"] not in new_keys,
-            hours["hours_status"] != "part_time_available",
-            hours.get("hours_target_fit") != "confirmed",
+            {'confirmed_target':0,'acceptable':1,'flexible_part_time':2,'unknown':3}.get(row['hours_fit'],4),
+            {'student':0,'junior':1,'internship':2,'compatible':3,'unspecified':4,'possible':5}.get(row['seniority_fit'],6),
+            {'strong':0,'relevant':1,'secondary':2,'adjacent':3,'unknown':4,'other_stack':5}.get(row['role_fit'],6),
             row["provisional"],
+            row["semantic_key"] not in new_keys,
             -_first_seen(row), row["dedupe_key"],
         )
 
     pending.sort(key=priority)
-    # Seven-day aging takes precedence; reserve one older slot in smaller queues too.
+    # Reserve one FIFO backlog slot, rather than letting aged generalists consume
+    # the whole budget ahead of newly discovered target-hours student jobs.
     oldest = sorted(pending, key=lambda row: (_first_seen(row), row["dedupe_key"]))
-    aged = [row for row in oldest if _first_seen(row) <= now.timestamp()-7*86400]
-    if aged:
-        aged_keys = {row["semantic_key"] for row in aged}
-        pending = aged + [row for row in pending if row["semantic_key"] not in aged_keys]
     selected = pending[:limit] if limit is not None else list(pending)
     backlog = [row for row in oldest if row["semantic_key"] not in new_keys
                and _first_seen(row) <= now.timestamp()-86400]
-    if selected and backlog and not aged and (len(selected) >= 2 or fairness_turn % 3 == 0):
+    if selected and backlog and (len(selected) >= 2 or fairness_turn % 3 == 0):
         if backlog[0] not in selected:
             selected[-1] = backlog[0]
     return selected, {"cached": cached, "deferred": deferred + len(pending)-len(selected)}

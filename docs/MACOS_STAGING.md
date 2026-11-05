@@ -1,5 +1,8 @@
 # macOS staging optimization — 2026-11-05
 
+Historical staging checkpoint. Current eligibility, scoring fairness and priority
+are described in [APPLICATION_PRIORITY.md](APPLICATION_PRIORITY.md).
+
 Base: `7e8ee5ccf3ac17a7b5e19e8decf3f44168cda5bb`. Local-only optimization;
 no deployment, paid request or real Telegram message was made in this checkpoint.
 SQLite schema, native/semantic identities, callbacks and immutable outbox remain.
@@ -76,7 +79,7 @@ Each scenario started from a separate consistent copy of that same DB. The old
 implementation was loaded from the base commit; the new implementation used the
 working source. The same private profile/model context and synthetic chat were
 used. The fake provider always returned apply/80; the two existing real cached
-scores were skip and remained cached. Socket connections were disabled for the
+scores were review/45 and review/42 (below the Tier A threshold) and remained cached. Socket connections were disabled for the
 comparison. Fake evaluations are not real recommendations or incurred costs.
 
 | Scoring setting | Before review queue | After A | After B | After total | After mock delivered |
@@ -86,7 +89,7 @@ comparison. Fake evaluations are not real recommendations or incurred costs.
 | 5 | 5 | 5 | 15 | 20 | 8 |
 | Missing provider, budget 2 | 0 | 0 | 20 | 20 | 8 |
 
-The budget-0 queue shrinks by two because existing AI skips are now respected.
+The budget-0 queue shrinks by two because existing review scores below 50 remain outside Tier A.
 There are 19 AI-eligible jobs; Tier B also retains three deterministic review
 roles. Eight is a message limit, not a promise to notify all 20 immediately.
 The other 12 remained pending for the synthetic chat after mock delivery.

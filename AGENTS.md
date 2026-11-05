@@ -13,6 +13,10 @@ Read `docs/MACOS_STAGING.md` for the current A/B review policy, bounded daily
 enrichment, scoring fairness, six search profiles and state-transfer checklist.
 Unscored actionable review must survive missing AI availability; failed scores,
 hard rejects and Applied/Skipped must not be promoted. Target hours: 20–25/week.
+Read `docs/APPLICATION_PRIORITY.md` for current eligibility, acceptable 15–30h,
+scoped seniority/experience checks, FIFO scoring fairness and notification aging.
+Never let technical similarity override explicit employment constraints. Unknown
+evidence remains review; no company-name or work-authorization assumptions.
 Read `docs/PRODUCTION_AUDIT.md` and `docs/PRODUCTION_RUNBOOK.md` for the launch
 checkpoint. Production uses `daily`, not the legacy email-only `run`/`telegram-send`.
 Do not deploy/enable remote services without owner approval. Ubuntu runtime,

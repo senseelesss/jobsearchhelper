@@ -3,6 +3,25 @@
 As of 2026-11-05. This file records observed results separately from the target
 architecture. No claim of full unattended V1 completion is made.
 
+## Filtering accuracy / application priority — 2026-11-05
+
+Continues from b9a7eb3. Deterministic eligibility now derives hours, seniority,
+location/role fit, evidence and application priority separately from stored AI
+scores. No new DB columns or paid stage. Hours target 20–25, acceptable 15–30;
+required >=4 professional years excluded, preferred experience stays review.
+Priority-based A/B delivery retains existing identities/outbox and reserves one
+aged pending slot; scoring reserves FIFO backlog capacity without bulk aging
+overriding newly found target-hours student roles. Workbook/report expose top five.
+
+Saved 34-job comparison: rule pool 22→15; A/B queue 20→13; AI candidates 19→12;
+HIGH=0 / MEDIUM=9 / LOW=6 / EXCLUDED=19. Hours target=1, unknown=30, mismatch=3.
+Mock delivery=8, remaining queue=5; all 34 records retained. Existing scores and
+application events preserved; authoritative DB/profile unchanged. No paid calls,
+real messages, deployment or push. The two stored low AI results are review/45
+and review/42; earlier staging wording calling them skip was corrected.
+
+251 tests and Ruff pass. See [policy, root causes, examples and limits](APPLICATION_PRIORITY.md).
+
 ## macOS staging optimization — 2026-11-05
 
 Continues from 7e8ee5cc. Current daily review has Tier A AI recommendations and
@@ -16,7 +35,7 @@ callbacks, notification identities and immutable outbox are preserved.
 Saved JD coverage: 4 full/34 source records; email-backed 0/24, direct-only 4/10.
 Offline old/new comparison on separate copies, fake scores and mock Telegram:
 budget 2 review queue 2→20 (A=2/B=18); budget 5 5→20 (A=5/B=15);
-missing provider 0→20; budget 0 22→20 because two cached skips stay excluded.
+missing provider 0→20; budget 0 22→20 because two cached review scores below 50 stay outside Tier A.
 The original DB tables were unchanged. No new paid calls, real messages or remote
 deployment occurred. Details, runtime/cost estimates, scopes and transfer checklist
 are in [MACOS_STAGING.md](MACOS_STAGING.md). Six source URLs pass local validation;

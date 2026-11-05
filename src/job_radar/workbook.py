@@ -13,6 +13,12 @@ def export_workbook(rows, output: Path):
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill, Alignment
     from openpyxl.worksheet.datavalidation import DataValidation
+    from openpyxl.utils import get_column_letter
+    from job_radar.eligibility import application_sort_key
+
+    rows = list(rows)
+    if any("application_priority" in row for row in rows):
+        rows.sort(key=application_sort_key)
 
     workbook = Workbook()
     sheet = workbook.active
@@ -48,7 +54,7 @@ def export_workbook(rows, output: Path):
         ("Опис", "fetch_status", 18),
         ("Перевірено (UTC)", "fetched_at", 28),
         ("Помилка опису", "fetch_error", 40),
-        ("AI оцінка 0–100", "match_score", 20),
+        ("Технічний AI збіг 0–100", "technical_match_score", 24),
         ("Рекомендація", "recommendation", 20),
         ("Впевненість AI", "score_confidence", 20),
         ("Зайнятість (окремо від AI)", "hours_status", 26),
@@ -56,6 +62,17 @@ def export_workbook(rows, output: Path):
         ("Стан AI", "score_status", 18),
         ("Черга A/B", "review_tier", 16),
         ("20–25 год/тиждень", "hours_target_fit", 24),
+        ("Причини / перевірити", "eligibility_summary", 70),
+        ("Причина виключення", "exclusion_reason", 70),
+        ("Версія правил пріоритету", "eligibility_policy_version", 40),
+    ]
+    columns[3:3] = [
+        ("Пріоритет подачі", "application_priority", 20),
+        ("Відповідність годин", "hours_fit", 26),
+        ("Відповідність рівня", "seniority_fit", 24),
+        ("Відповідність локації", "location_fit", 26),
+        ("Можливість подачі", "application_eligibility", 24),
+        ("Якість доказів", "evidence_quality", 22),
     ]
     for index, (label, _, width) in enumerate(columns, 1):
         sheet.cell(5, index, label)
@@ -63,10 +80,21 @@ def export_workbook(rows, output: Path):
     for row_number, row in enumerate(rows, 6):
         for column, (_, key, _) in enumerate(columns, 1):
             value = row.get(key, "")
+            if key == "technical_match_score":
+                value = row.get(key, row.get("match_score"))
             if key == "application_key":
                 value = row.get(key, row.get("dedupe_key", ""))
             cell = sheet.cell(row_number, column, value)
             cell.font = Font(name="Arial", size=10)
+            if key == "application_priority":
+                color = {
+                    "HIGH": "D8EEDB",
+                    "MEDIUM": "FFF2CC",
+                    "LOW": "E5EDF5",
+                    "EXCLUDED": "FADBD8",
+                }.get(value, "FFFFFF")
+                cell.fill = PatternFill("solid", fgColor=color)
+                cell.font = Font(name="Arial", size=10, bold=True)
             if isinstance(value, str):
                 cell.data_type = "s"
             if key == "fetched_at" and value:
@@ -107,7 +135,9 @@ def export_workbook(rows, output: Path):
             cell.fill = PatternFill("solid", fgColor="243B53")
             cell.alignment = Alignment(wrap_text=True, horizontal="center", vertical="center")
         page.row_dimensions[5].height = 32
-        page.auto_filter.ref = f"A5:{'T' if page == sheet else 'D'}{max(6, page.max_row)}"
+        page.auto_filter.ref = (
+            f"A5:{get_column_letter(len(columns)) if page == sheet else 'D'}{max(6, page.max_row)}"
+        )
     output.parent.mkdir(parents=True, exist_ok=True)
     with NamedTemporaryFile(suffix=".xlsx", dir=output.parent, delete=False) as temporary:
         name = Path(temporary.name)

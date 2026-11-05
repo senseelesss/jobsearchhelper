@@ -15,6 +15,11 @@ recommendations, enriches eligible missing JDs within a global request budget,
 and reports per-run versus persistent funnel totals. See the
 [offline comparison, six searches and transfer checklist](docs/MACOS_STAGING.md).
 
+The [application-priority policy and validation](docs/APPLICATION_PRIORITY.md)
+now separate technical similarity from hours/seniority/location eligibility and
+rank the first five actionable jobs, with evidence and HIGH/MEDIUM/LOW/EXCLUDED
+filters in the workbook. These are human-review priorities, not automatic applications.
+
 The first command reads the last N days of Gmail alerts, extracts individual jobs,
 removes tracking parameters, deduplicates them by source ID, and stores them in SQLite.
 
@@ -175,7 +180,7 @@ job-radar export --format csv --output data/jobs.csv
 SQLite database: `data/jobs.db`.
 
 `job-radar screen` applies the versioned deterministic rules in
-`src/job_radar/screening_rules.v3.json`. Every source vacancy remains stored under
+`src/job_radar/screening_rules.v4.json`. Every source vacancy remains stored under
 its source deduplication key. Cross-source duplicates share a `semantic_key`, while
 `screening_status`, structured `rejection_reasons`, and the rules version are stored
 on each source record for auditability.
@@ -183,7 +188,7 @@ on each source record for auditability.
 Screening keeps a broad funnel. `eligible` covers explicit early-career roles and
 clearly relevant technical work. `review` retains adjacent, incomplete, uncertain,
 and non-technical student roles. `rejected` is reserved for hard exclusions:
-explicit seniority, requirements of five or more years, clearly irrelevant
+explicit seniority, required professional experience of four or more years, clearly irrelevant
 professions, unacceptable location, and expired vacancies.
 
 `--collapse-semantic` affects exports only. It emits one canonical row per

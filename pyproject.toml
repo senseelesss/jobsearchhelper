@@ -36,7 +36,7 @@ job-radar = "job_radar.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-job_radar = ["screening_rules.v*.json"]
+job_radar = ["screening_rules.v*.json", "eligibility_rules.v*.json"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

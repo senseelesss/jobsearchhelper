@@ -139,6 +139,10 @@ def telegram_candidates(
     model: str | None = None,
     semantic_keys: set[str] | None = None,
 ) -> list[dict[str, Any]]:
+    from job_radar.eligibility import assess_application
+    from job_radar.exporting import semantic_groups
+
+    canonical = {group[0]["semantic_key"]: group[0] for group in semantic_groups(repository.all())}
     rows = []
     for row in application_queue(
         repository,
@@ -152,6 +156,18 @@ def telegram_candidates(
         score = row["match_score"]
         if row["vacancy_state"] != "active":
             continue
+        raw = canonical.get(row["semantic_key"])
+        if raw is not None:
+            assessment = assess_application(
+                {
+                    **raw,
+                    **row,
+                    "application_state": repository.application_for(raw["dedupe_key"])["state"],
+                }
+            )
+            if assessment["application_eligibility"] == "ineligible":
+                continue
+            row.update(assessment)
         if row["score_status"] != "success":
             continue
         if row["draft_status"] != "ready":

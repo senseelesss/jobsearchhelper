@@ -256,6 +256,10 @@ def test_fair_plan_prioritizes_new_part_time_and_guarantees_old_backlog(tmp_path
         plan, _ = scoring_plan(
             repo, {}, "test-model", limit=1, new_semantic_keys=new_keys, fairness_turn=1
         )
+        assert plan[0]["source_job_id"] == "2"
+        plan, _ = scoring_plan(
+            repo, {}, "test-model", limit=1, new_semantic_keys=new_keys, fairness_turn=3
+        )
         assert plan[0]["source_job_id"] == "1"
 
 
