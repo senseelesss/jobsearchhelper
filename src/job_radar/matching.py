@@ -1,12 +1,16 @@
+from __future__ import annotations
+
 import hashlib
 import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
-from typing import Any
+from typing import Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from job_radar.application_models import ApplicationDraftContent
 
 from job_radar.ai.provider import AIProvider, TokenUsage
-from job_radar.application_models import ApplicationDraftContent, JobScore
 from job_radar.candidate import candidate_profile_hash
 from job_radar.enrichment_adapters.common import description_hash
 from job_radar.exporting import semantic_groups
@@ -302,6 +306,7 @@ def draft_jobs(
     semantic_keys: set[str] | None = None,
     review_min_score: int = 0,
 ) -> DraftSummary:
+    from job_radar.application_models import JobScore
     accepted = recommendations or APPLICATION_RECOMMENDATIONS
     profile_hash = candidate_profile_hash(profile)
     all_score_rows = [

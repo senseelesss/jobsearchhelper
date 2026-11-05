@@ -7,19 +7,35 @@ live checks below pass on your machine.
 ## Setup after pulling the update
 
 ```bash
-python3 -m venv .venv
-.venv/bin/python -m pip install -e ".[dev,scraping]"
-cp -n candidate_profile.example.yaml data/candidate_profile.yaml
-export PYTHONPATH="$PWD/src"
-export PLAYWRIGHT_BROWSERS_PATH="$PWD/outputs/playwright-browsers"
-.venv/bin/python -m playwright install chromium
+./scripts/setup.sh
+./bin/job-radar telegram-check
 ```
 
-For a relocated old virtualenv, create a fresh environment rather than copying its
-launchers. Existing Gmail tokens, `.env` and SQLite data are private and not in Git.
+The setup script creates a fresh runtime under `~/.cache/job-radar/venv` and browser
+binaries under `~/.cache/job-radar/browsers`. The launcher selects this interpreter
+explicitly and works without activating a virtualenv, including when an old
+`.venv` is still activated. It also keeps Python bytecode outside Documents.
+The existing `.venv`, private profile, tokens, `.env`/`data/.env` and DB are preserved.
+Override `JOB_RADAR_CACHE_DIR` or `JOB_RADAR_VENV` only when using a custom location.
+If a previous shell exported `PLAYWRIGHT_BROWSERS_PATH` into the project folder,
+unset it before setup to use the new default browser location.
 The populated candidate profile is private too. Fill the local copy with your
 verified facts before scoring or drafting; the public example contains no personal
 identity, work history or invented skills.
+
+Use `./bin/job-radar` in place of `.venv/bin/python -m job_radar.cli` in the older
+examples below. Legacy virtualenv commands still work with a healthy environment.
+To check the bot and send an explicit connection test:
+
+```bash
+./bin/job-radar telegram-check
+./bin/job-radar telegram-check --test-message
+```
+
+A traceback interrupted in `importlib.get_data`, OpenAI/Pydantic, or BeautifulSoup
+is an import/startup problem, not evidence of a failed Telegram request. Connection
+checks no longer import AI code; daily collection prints stage progress before
+network work. AI SDK/schema imports occur when scoring or drafting is requested.
 
 ## Paste filtered search URLs
 

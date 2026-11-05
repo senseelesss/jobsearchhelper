@@ -1,0 +1,14 @@
+#!/bin/sh
+set -eu
+PROJECT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+CACHE_DIR=${JOB_RADAR_CACHE_DIR:-"${XDG_CACHE_HOME:-$HOME/.cache}/job-radar"}
+ENV_DIR=${JOB_RADAR_VENV:-"$CACHE_DIR/venv"}
+if [ ! -x "$ENV_DIR/bin/python" ]; then
+    printf 'Runtime not installed. Run: %s/scripts/setup.sh\n' "$PROJECT_DIR" >&2
+    exit 1
+fi
+export PYTHONPATH="$PROJECT_DIR/src${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONPYCACHEPREFIX=${PYTHONPYCACHEPREFIX:-"$CACHE_DIR/pycache"}
+export PLAYWRIGHT_BROWSERS_PATH=${PLAYWRIGHT_BROWSERS_PATH:-"$CACHE_DIR/browsers"}
+cd "$PROJECT_DIR"
+exec "$ENV_DIR/bin/python" -u -m job_radar.cli "$@"

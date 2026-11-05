@@ -1,7 +1,32 @@
 # Implementation and verification log
 
-As of 2026-11-04. This file records observed results separately from the target
+As of 2026-11-05. This file records observed results separately from the target
 architecture. No claim of full unattended V1 completion is made.
+
+## Startup recovery — 2026-11-05
+
+The user's interrupted tracebacks stopped while importing OpenAI/Pydantic and
+BeautifulSoup from the old Documents virtualenv, before the corresponding HTTP
+requests. They do not establish a Telegram or source-network failure. The exact
+cause of the slow local file reads has not been established.
+
+Telegram connection checks and daily collection now avoid eager AI SDK/schema
+imports. The CLI prints startup and collection-stage progress. `scripts/setup.sh`
+installs a separate persistent runtime, bytecode and Chromium under
+`~/.cache/job-radar`; `bin/job-radar` selects it without shell activation or a
+manual PYTHONPATH. Existing private files and the old virtualenv are preserved.
+
+Verified with the new runtime:
+
+- **157 tests passed**, including fresh-process guards against AI imports during
+  connection checks and daily module startup; Ruff passed.
+- `./bin/job-radar telegram-check`: bot and chat verified, no message sent.
+- Playwright `daily`, no email, one page/job per source, no details/AI/Telegram:
+  karriere.at and LinkedIn both succeeded; two source rows inserted, one eligible
+  and one rejected. Excel, JSON report and SQLite backup were produced under
+  ignored `outputs/startup-fix-check/`.
+
+Real Telegram delivery and unattended deployment acceptance remain pending.
 
 ## Checkpoint 1 — existing email path verified
 

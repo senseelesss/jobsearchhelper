@@ -29,19 +29,16 @@ This independent probe defaults to one search page and writes JSON. Add `--pages
 and `--details 3` for bounded pagination and full descriptions. It does not write
 SQLite, read Gmail, call AI or send Telegram messages; use `daily` for integration.
 
-Install once (the browser path keeps binaries inside ignored project outputs):
+Recommended local setup (dependencies and browser binaries stay outside Documents):
 
 ```bash
-.venv/bin/python -m pip install -e ".[dev,scraping]"
-export PLAYWRIGHT_BROWSERS_PATH="$PWD/outputs/playwright-browsers"
-.venv/bin/python -m playwright install chromium
+./scripts/setup.sh
 ```
 
 Run from the project directory:
 
 ```bash
-export PLAYWRIGHT_BROWSERS_PATH="$PWD/outputs/playwright-browsers"
-PYTHONPATH=src .venv/bin/python -m job_radar.cli scrape \
+./bin/job-radar scrape \
   --source karriere --query python --location wien --limit 5 \
   --transport playwright --output outputs/karriere-probe/jobs.json
 ```
@@ -60,8 +57,7 @@ The same command supports LinkedIn's public job search, with no account login or
 Gmail input. Browser installation above is shared between both sources:
 
 ```bash
-export PLAYWRIGHT_BROWSERS_PATH="$PWD/outputs/playwright-browsers"
-PYTHONPATH=src .venv/bin/python -m job_radar.cli scrape \
+./bin/job-radar scrape \
   --source linkedin --query python --location "Vienna, Austria" --limit 5 \
   --transport playwright --output outputs/linkedin-probe/jobs.json
 ```

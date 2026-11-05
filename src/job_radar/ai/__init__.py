@@ -1,4 +1,3 @@
-from job_radar.ai.openai_provider import OpenAIProvider
 from job_radar.ai.provider import (
     AIProvider,
     DraftProviderResult,
@@ -13,3 +12,12 @@ __all__ = [
     "ScoreProviderResult",
     "TokenUsage",
 ]
+
+
+def __getattr__(name):
+    if name == "OpenAIProvider":
+        from job_radar.ai.openai_provider import OpenAIProvider
+
+        globals()[name] = OpenAIProvider
+        return OpenAIProvider
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

@@ -1,7 +1,10 @@
-from dataclasses import dataclass
-from typing import Any, Protocol
+from __future__ import annotations
 
-from job_radar.application_models import ApplicationDraftContent, JobScore
+from dataclasses import dataclass
+from typing import Any, Protocol, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from job_radar.application_models import ApplicationDraftContent, JobScore
 
 
 @dataclass(frozen=True, slots=True)

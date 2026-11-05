@@ -6,12 +6,17 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Protocol
 
-from job_radar.matching import application_queue
 from job_radar.storage import JobRepository
 
 TELEGRAM_MESSAGE_LIMIT = 4096
 CARD_LIMIT = 3900
 RECOMMENDATION_ORDER = {"strong_apply": 0, "apply": 1, "review": 2}
+
+
+def application_queue(*args, **kwargs):
+    from job_radar.matching import application_queue as build_queue
+
+    return build_queue(*args, **kwargs)
 
 
 class TelegramTransport(Protocol):

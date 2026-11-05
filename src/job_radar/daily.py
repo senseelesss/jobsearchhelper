@@ -49,7 +49,12 @@ def daily_cycle(
     import_workbook=None,
     input_cost_per_million=0,
     output_cost_per_million=0,
+    on_progress=None,
 ):
+    def progress(message):
+        if on_progress is not None:
+            on_progress(message)
+
     report = {
         "sources": [],
         "emails": 0,
@@ -81,6 +86,7 @@ def daily_cycle(
                     report["errors"].append("Some Excel edits were rejected; see import receipt")
             # Email failures cannot cancel direct collection; commit each decoded message.
             if fetch_emails:
+                progress("Reading email alerts...")
                 try:
                     for message in fetch_emails():
                         jobs = [
@@ -111,6 +117,7 @@ def daily_cycle(
                         run_id, "email", status="failed", error=type(error).__name__
                     )
             for search in searches:
+                progress(f"Collecting {search.name}...")
                 try:
                     batch = collect(search.url)
                     result = ingest_observations(repository, batch.jobs)
@@ -125,6 +132,10 @@ def daily_cycle(
                             "stop": batch.stop_reason,
                         }
                     )
+                    progress(
+                        f"{search.name}: {batch.status}, {len(batch.jobs)} jobs, "
+                        f"{batch.pages_fetched} pages"
+                    )
                     if batch.status not in {"success", "empty"}:
                         report["errors"].append(f"{search.name}: {batch.status}; {batch.error}")
                     repository.record_run_stage(
@@ -133,6 +144,7 @@ def daily_cycle(
                 except Exception as error:
                     report["errors"].append(f"{search.name}: {type(error).__name__}")
             # Include outdated rules and newly supplied full descriptions, not just new rows.
+            progress("Screening vacancies and preparing review files...")
             rules = load_rules()
             keys = [
                 row["dedupe_key"]

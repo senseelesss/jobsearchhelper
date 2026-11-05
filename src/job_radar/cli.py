@@ -75,6 +75,7 @@ def _search_add(args):
 
 
 def _telegram_connect(args, settings):
+    print("Checking Telegram connection...", flush=True)
     import getpass
     import os
     from dotenv import set_key
@@ -106,6 +107,7 @@ def _telegram_connect(args, settings):
 
 
 def _daily(args, settings):
+    print("Preparing daily collection...", flush=True)
     from job_radar.collection import collect_search
     from job_radar.daily import daily_cycle
     from job_radar.searches import load_searches
@@ -141,6 +143,7 @@ def _daily(args, settings):
         import_workbook=Path(args.import_xlsx) if args.import_xlsx else None,
         input_cost_per_million=settings.openai_input_cost_per_million,
         output_cost_per_million=settings.openai_output_cost_per_million,
+        on_progress=lambda message: print(message, flush=True),
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
     if result["status"] != "success":
