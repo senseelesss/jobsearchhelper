@@ -3,6 +3,19 @@
 As of 2026-11-08. This file records observed results separately from the target
 architecture. No claim of full unattended V1 completion is made.
 
+## Documentation checkpoint / full project audit — 2026-11-08
+
+Baseline 1c06c67 was clean; version 1.1.0 and its existing local tag are preserved.
+The [full project audit](PROJECT_AUDIT.md) records current subsystem evidence,
+historical live checks, security gates, limitations and an incremental roadmap.
+No application functionality changed. A fresh public-file copy passed 254 tests,
+Ruff, CLI help/version, configuration and temporary SQLite integrity checks.
+Additional offline reproductions confirmed cached provisional scores blocking
+later daily JD acquisition, early/detailed location disagreement and incomplete
+enrichment not necessarily marking the overall run partial. These are documented
+follow-up tasks, not fixed here. No paid calls, live collection, Telegram send,
+authoritative DB changes, push, new tag, history rewrite or deployment occurred.
+
 ## Local release preparation v1.1.0 — 2026-11-08
 
 Continues from 5e6ab28. One authoritative version, CLI --version, hash-pinned
