@@ -9,6 +9,13 @@ For launch evidence and the prepared Ubuntu deployment, use
 [PRODUCTION_RUNBOOK.md](PRODUCTION_RUNBOOK.md). The latter supersedes the earlier
 deployment outline at the bottom of this page.
 
+For v1.1.0 installation and configuration, start with [README](../README.md).
+Daily, application-set and callbacks now share JOB_RADAR_DB by default (data/jobs.db
+when unset). Older daily runs defaulted to data/mvp-v1-test.db: explicitly configure
+the DB containing your existing state before upgrading. The test commands below
+use an explicit isolated DB; callbacks must use that same path. No automatic DB
+migration between paths is performed. See [release notes](RELEASE_v1.1.0.md).
+
 ## Setup after pulling the update
 
 ```bash

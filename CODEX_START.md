@@ -1,40 +1,17 @@
-# Working With Codex
+# Working on Job Radar
 
-## First Session
+Read AGENTS.md, README.md and the latest docs/PROGRESS.md checkpoint first.
+Use daily as the release workflow. Current business policy is in
+[application policy](docs/APPLICATION_PRIORITY.md); Linux host setup is in
+[PRODUCTION_RUNBOOK.md](docs/PRODUCTION_RUNBOOK.md).
+Historical MVP audits/designs are rationale, not a list of still-missing features.
 
-Open this repository as the workspace and use:
+Keep changes scoped, preserve native IDs, SQLite application/outbox state and
+private files, and run pytest/Ruff before committing. Parser changes need sanitized
+fixtures. Validate on isolated DBs. Never run paid scoring or real Telegram sends
+without explicit authorization. Do not deploy, push, rewrite history or upload
+legacy private branches without owner approval. See docs/RELEASE_v1.1.0.md for the
+historical credential-rotation and metadata/privacy publication gates.
 
-```text
-Read AGENTS.md, README.md, and the complete current codebase.
-Run the available checks before editing.
-Then inspect the implementation and tell me the current pipeline, risks, and the
-smallest next milestone. Do not write code until you understand the repository.
-```
-
-## Implementation Prompt
-
-```text
-Read AGENTS.md and follow it strictly. Implement the first incomplete milestone in
-AGENTS.md. Keep the change scoped, add regression tests, run all available checks,
-and update README.md only when behavior or setup changes. Do not expose secrets or
-store raw emails.
-```
-
-## Review Prompt
-
-```text
-Review the current branch as a senior Python engineer. Findings first, ordered by
-severity, with exact file and line references. Focus on correctness, data loss,
-duplicate handling, Gmail pagination, parser regressions, privacy, and missing tests.
-Do not edit files during this review.
-```
-
-## Working Style
-
-- Keep one concrete objective per Codex session.
-- Let Codex inspect and test before asking it to implement.
-- Ask for tests with every parser change.
-- Commit after a verified milestone, not after every tiny edit.
-- Never paste OAuth tokens or raw personal emails into prompts.
-- Store sanitized email layouts in `tests/fixtures/`.
-
+Keep real profiles, OAuth clients/tokens, keys, emails and reports out of Git and
+prompts. The blank profile and public filtered search examples are templates.

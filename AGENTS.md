@@ -9,6 +9,8 @@ The next milestone is reliable multi-source collection. Read `docs/MVP_AUDIT.md`
 `docs/ARCHITECTURE.md`, `docs/MVP_V1.md`, and `docs/SOURCES.md`; target architecture is explicitly
 distinguished from implemented behavior.
 Read `docs/PROGRESS.md` for verified live runs and current checkpoint status.
+Read `docs/RELEASE_v1.1.0.md` for release validation and unresolved publication
+security gates; README is the current macOS/Ubuntu installation guide.
 Read `docs/MACOS_STAGING.md` for the current A/B review policy, bounded daily
 enrichment, scoring fairness, six search profiles and state-transfer checklist.
 Unscored actionable review must survive missing AI availability; failed scores,
@@ -69,13 +71,13 @@ installed deployment; seven-day unattended acceptance remains pending.
 ## Commands
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
-pytest
-ruff check .
-job-radar backfill --days 10
-job-radar export --format json
+./scripts/setup.sh --no-browser
+./bin/job-radar --version
+# Use the interpreter path printed by setup for these development commands:
+python -m pytest
+python -m ruff check .
+./bin/job-radar daily --no-email --enrich-limit 0
+./bin/job-radar export --format json
 ```
 
 ## Definition Of Done

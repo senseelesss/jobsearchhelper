@@ -1,7 +1,31 @@
 # Implementation and verification log
 
-As of 2026-11-05. This file records observed results separately from the target
+As of 2026-11-08. This file records observed results separately from the target
 architecture. No claim of full unattended V1 completion is made.
+
+## Local release preparation v1.1.0 — 2026-11-08
+
+Continues from 5e6ab28. One authoritative version, CLI --version, hash-pinned
+runtime/dev/scraping/build dependencies and fresh-profile/search setup are prepared.
+Daily and application-set now honor JOB_RADAR_DB unless --database is explicit,
+matching callbacks. Set the actual authoritative DB path before upgrading; no
+existing DB is moved, merged or modified by release validation.
+
+Fresh public-file copy and new Python 3.12.14 venv: setup --no-browser, pip check,
+source/installed CLI, wheel metadata/resources, 254 tests and Ruff all passed.
+The full test run blocked socket connections/DNS; temporary SQLite and fake
+providers cover ingestion, eligibility/priority, previews, replay and persistence.
+Offline Chromium parsed two fixture jobs with network routes blocked. Lock/export
+consistency, shell syntax, ignore rules and diff whitespace also passed.
+
+No private state deleted, paid calls, real Telegram sends, push, history rewrite
+or deployment. Existing unrelated nested repository is preserved and excluded
+locally. Historical credentials/private profile exist on old master/recovery refs,
+outside release ancestry. The exposed OpenAI key matches the configured key:
+rotation is required; historical bot revocation and author-email privacy review
+remain publication gates. No credential values are printed or committed here.
+See [release audit and limitations](RELEASE_v1.1.0.md). Ubuntu CI/setup are prepared;
+target-host browser/service/reboot and unattended acceptance remain unverified.
 
 ## Filtering accuracy / application priority — 2026-11-05
 

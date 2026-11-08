@@ -155,7 +155,7 @@ def _daily(args, settings):
     if args.telegram and (not settings.telegram_bot_token or not settings.telegram_chat_id):
         initial_errors.append("Telegram configuration missing; run telegram-connect")
     result = daily_cycle(
-        Path(args.database), searches, collector,
+        Path(args.database) if args.database else settings.database_path, searches, collector,
         fetch_emails=None if args.no_email else email_fetcher,
         provider=provider, profile=profile, score_limit=args.score_limit,
         telegram=TelegramApiClient(settings.telegram_bot_token)
@@ -178,9 +178,9 @@ def _daily(args, settings):
         raise SystemExit(1)
 
 
-def _application_set(args):
+def _application_set(args, settings=None):
     from job_radar.runner import RunLock
-    path = Path(args.database)
+    path = Path(args.database) if args.database else (settings or Settings.from_env()).database_path
     with RunLock(path.with_suffix(path.suffix + ".run.lock")), JobRepository(path) as repository:
         result = repository.set_application(args.key, args.state, args.request_id, note=args.note)
     print(f"Application status: {result}")
@@ -716,10 +716,12 @@ def _run(args: argparse.Namespace, settings: Settings) -> None:
 
 
 def parser() -> argparse.ArgumentParser:
+    from job_radar import __version__
     root = argparse.ArgumentParser(
         prog="job-radar",
         description="Incremental email-first vacancy pipeline and application queue.",
     )
+    root.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     commands = root.add_subparsers(dest="command", required=True)
 
     scrape = commands.add_parser("scrape", help="Probe one public search page into JSON")
@@ -741,9 +743,9 @@ def parser() -> argparse.ArgumentParser:
     for name in ("telegram-connect", "telegram-check"):
         connection = commands.add_parser(name)
         connection.add_argument("--test-message", action="store_true")
-    daily = commands.add_parser("daily", help="Collect saved searches and optional email into a test DB")
+    daily = commands.add_parser("daily", help="Collect saved searches and optional email into SQLite")
     daily.add_argument("--searches", default="data/searches.yaml")
-    daily.add_argument("--database", default="data/mvp-v1-test.db")
+    daily.add_argument("--database", help="Override JOB_RADAR_DB (default: data/jobs.db)")
     daily.add_argument("--output", default="outputs/daily")
     daily.add_argument("--transport", choices=("playwright", "http"), default="playwright")
     daily.add_argument("--pages", type=int, choices=range(1,11), default=2, metavar="1..10")
@@ -763,7 +765,7 @@ def parser() -> argparse.ArgumentParser:
     application.add_argument("state")
     application.add_argument("--request-id", required=True)
     application.add_argument("--note", default="")
-    application.add_argument("--database", default="data/mvp-v1-test.db")
+    application.add_argument("--database", help="Override JOB_RADAR_DB (default: data/jobs.db)")
 
     backfill = commands.add_parser("backfill")
     backfill.add_argument("--days", type=int, default=10)
@@ -838,7 +840,7 @@ def main() -> None:
     elif args.command == "daily":
         _daily(args, settings)
     elif args.command == "application-set":
-        _application_set(args)
+        _application_set(args, settings)
     elif args.command == "scrape":
         _scrape(args)
     elif args.command == "backfill":

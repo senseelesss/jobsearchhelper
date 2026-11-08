@@ -42,7 +42,8 @@ sudo useradd --system --create-home --home-dir /var/lib/job-radar --shell /usr/s
 sudo install -d -o jobradar -g jobradar -m 0700 /var/lib/job-radar/secrets /var/cache/job-radar
 sudo git clone https://github.com/senseelesss/jobsearchhelper.git /opt/job-radar
 sudo python3 -m venv /opt/job-radar/.venv
-sudo /opt/job-radar/.venv/bin/pip install '/opt/job-radar[dev,scraping]'
+sudo /opt/job-radar/.venv/bin/pip install --require-hashes -r /opt/job-radar/requirements.lock
+sudo /opt/job-radar/.venv/bin/pip install --no-deps --no-build-isolation '/opt/job-radar[dev,scraping]'
 sudo /opt/job-radar/.venv/bin/python -m playwright install-deps chromium
 sudo -u jobradar env HOME=/var/lib/job-radar PLAYWRIGHT_BROWSERS_PATH=/var/cache/job-radar/browsers \
   /opt/job-radar/.venv/bin/python -m playwright install chromium
