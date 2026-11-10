@@ -5,6 +5,10 @@ keeps vacancy/application history in SQLite, and helps prioritize 20–25h/week 
 work in Vienna (15–30h acceptable). **v1.1.0 is the first reproducible application
 release; unattended Ubuntu deployment has not been certified or enabled.**
 
+Collection/enrichment v2 adds durable JD recovery, source health, public Absolventen
+RSS and optional Greenhouse/Lever employer feeds. See [v2 validation and limits](docs/COLLECTION_V2.md)
+and `searches.collection-v2.example.yaml`; private searches are unchanged.
+
 ## What works
 
 - Independent email/direct collection; bounded pagination and JD enrichment.

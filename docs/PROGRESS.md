@@ -320,3 +320,14 @@ Remaining acceptance: user review of Excel import and real Telegram delivery,
 deployment to a chosen persistent host, restore/off-host monitoring setup and a
 seven-day unattended run. Source-query cursor resume and more conservative fuzzy
 repost matching remain future work. Automatic application submission is absent.
+
+
+## 2026-11-10 — Collection/enrichment v2
+
+Independent enrichment selection, bounded stale refresh/durable retry state,
+quality/provenance reporting, Austria-remote screening fix and last-good-content
+protection are implemented. Public Absolventen RSS plus documented Greenhouse/Lever
+feeds passed bounded live import/replay checks; the other requested boards have
+explicit access/terms blockers. See [measured evidence and acceptance commands](COLLECTION_V2.md).
+Baseline 254 tests; expanded suite 294 passed, Ruff passed. No paid calls, live
+Telegram sends, application submissions, main updates or deployment.
