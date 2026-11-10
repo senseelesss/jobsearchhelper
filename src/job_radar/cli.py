@@ -18,7 +18,7 @@ def _scrape(args: argparse.Namespace) -> None:
     client = (
         PlaywrightClient(timeout_seconds=20, headed=args.headed)
         if args.transport == "playwright"
-        else HttpClient(timeout_seconds=20, rate_limit_seconds=2, retries=0)
+        else HttpClient(timeout_seconds=20, rate_limit_seconds=2, retries=0, same_host_redirects=True)
     )
     source = args.source or (validate_search_url(args.url).source if args.url else "karriere")
     default_locations = {"karriere": "wien", "linkedin": "Vienna, Austria"}
@@ -121,7 +121,7 @@ def _daily(args, settings):
     except Exception as error:
         searches = []
         initial_errors.append(f"Search configuration: {error_label(error)}")
-    client = PlaywrightClient() if args.transport == "playwright" else HttpClient(15, 2, 1)
+    client = PlaywrightClient() if args.transport == "playwright" else HttpClient(15, 2, 1, same_host_redirects=True)
     def collector(url):
         return collect_search(client, url, limit=args.limit, max_pages=args.pages, details=args.details)
     def email_fetcher():
@@ -170,8 +170,10 @@ def _daily(args, settings):
         score_model=settings.openai_model,
         enrichment_client=HttpClient(settings.enrichment_timeout_seconds,
                                      settings.enrichment_rate_limit_seconds,
-                                     settings.enrichment_retries),
+                                     settings.enrichment_retries, same_host_redirects=True),
         enrichment_limit=args.enrich_limit,
+        enrichment_freshness_hours=settings.enrichment_freshness_hours,
+        enrichment_retry_hours=settings.enrichment_retry_hours,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
     if result["status"] != "success":
@@ -287,6 +289,7 @@ def _enrich(args: argparse.Namespace, settings: Settings) -> None:
                 timeout_seconds=settings.enrichment_timeout_seconds,
                 rate_limit_seconds=settings.enrichment_rate_limit_seconds,
                 retries=settings.enrichment_retries,
+                same_host_redirects=True,
             ),
             only=args.only,
             retry_failed=args.retry_failed,
@@ -312,6 +315,9 @@ def _enrichment_report(args: argparse.Namespace, settings: Settings) -> None:
     finally:
         repository.close()
 
+    if getattr(args, "json", False):
+        print(json.dumps(rows, ensure_ascii=False, indent=2))
+        return
     print("source\ttitle\tfetch_status\tfetch_error\thttp_status\tfinal_url")
     for row in rows:
         final_url = str(row["final_url"])
@@ -786,6 +792,7 @@ def parser() -> argparse.ArgumentParser:
     enrich.add_argument("--refresh", action="store_true")
     report = commands.add_parser("enrichment-report")
     report.add_argument("--only", choices=("eligible", "review"), default="eligible")
+    report.add_argument("--json", action="store_true", help="Include completeness, provenance and retry state")
     score = commands.add_parser("score")
     score_scope = score.add_mutually_exclusive_group()
     score_scope.add_argument("--only", choices=("eligible", "review"))

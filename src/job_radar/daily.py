@@ -73,6 +73,13 @@ def review_rows(repository, profile_hash=None, model=None, profile=None):
             row[key] = current.get(key)
         row.update(assess_application(row, profile))
         row["jd_status"] = "full" if has_full_description(row) else "incomplete"
+        from job_radar.enrichment_adapters.common import completeness
+        row["jd_completeness"] = completeness(row["fetch_status"], row["description"] or row["snippet"], row["fetch_error"])
+        attempt = repository.enrichment_attempt(row["url"])
+        row["jd_provenance"] = json.loads(attempt["metadata_json"]) if attempt else {
+            "original_url": row["url"], "content_url": row["final_url"] or row["url"],
+            "extraction": row["connector"],
+        }
         row["first_seen_at"] = min(x["created_at"] for x in group)
         row["review_tier"] = (
             "A"
@@ -154,36 +161,30 @@ def _write_json(path, value):
     temporary.replace(path)
 
 
-def _enrich_review(repository, rows, client, limit, profile, model, new_keys, turn):
+def _enrich_review(repository, rows, client, limit, profile, model, new_keys, turn,
+                   freshness_hours=72, retry_hours=24):
     from job_radar.enrichment import enrich_jobs
-    from job_radar.matching import has_full_description, scoring_plan
+    from job_radar.matching import has_full_description
 
     now = datetime.now(timezone.utc)
-    keys = set()
+    selected = []
     for row in rows:
-        if not _scoreable(row) or has_full_description(row):
+        if not _scoreable(row):
             continue
-        if row["fetch_status"] in {"snippet_only", "failed", "blocked", "empty"}:
-            try:
-                stamp = datetime.fromisoformat(row["fetched_at"].replace("Z", "+00:00"))
-                if (
-                    now - stamp.replace(tzinfo=stamp.tzinfo or timezone.utc)
-                ).total_seconds() < 86400:
-                    continue
-            except ValueError:
-                pass
-        keys.add(row["semantic_key"])
-    selected, _ = scoring_plan(
-        repository,
-        profile or {},
-        model or "",
-        limit=limit,
-        semantic_keys=keys,
-        new_semantic_keys=new_keys,
-        fairness_turn=turn,
-        only=None,
-        retry_after_seconds=86400,
-    )
+        ttl = freshness_hours if has_full_description(row) else retry_hours
+        try:
+            stamp = datetime.fromisoformat(row["fetched_at"].replace("Z", "+00:00"))
+            age = (now - stamp.replace(tzinfo=stamp.tzinfo or timezone.utc)).total_seconds()
+            if 0 <= age < ttl * 3600:
+                continue
+        except (ValueError, TypeError):
+            pass
+        selected.append(row)
+    # Missing descriptions first, then oldest attempt. Score caches never enter this plan.
+    selected.sort(key=lambda row: (
+        has_full_description(row), row["fetched_at"] or "", row["first_seen_at"],
+        row["semantic_key"],
+    ))
     ordered = [row["semantic_key"] for row in selected]
     result = enrich_jobs(
         repository,
@@ -194,6 +195,9 @@ def _enrich_review(repository, rows, client, limit, profile, model, new_keys, tu
         request_limit=limit,
         max_seconds=120,
         ordered_keys=ordered,
+        max_age_hours=freshness_hours,
+        retry_after_hours=retry_hours,
+        respect_cooldown=True,
     )
     # Newly loaded requirements may hard-reject a role before any paid scoring.
     repository.screen_keys(
@@ -471,6 +475,8 @@ def daily_cycle(
     email_budget_seconds=120,
     enrichment_client=None,
     enrichment_limit=5,
+    enrichment_freshness_hours=72,
+    enrichment_retry_hours=24,
     score_model=None,
 ):
     def progress(message):
@@ -604,6 +610,9 @@ def daily_cycle(
                             "jobs": len(batch.jobs),
                             "pages": batch.pages_fetched,
                             "stop": batch.stop_reason,
+                            "metrics": batch.metrics,
+                            "invalid_cards": batch.invalid_cards,
+                            "error": batch.error,
                         }
                     )
                     progress(
@@ -662,12 +671,16 @@ def daily_cycle(
                         model,
                         new_keys,
                         run_id,
+                        enrichment_freshness_hours,
+                        enrichment_retry_hours,
                     )
                     incomplete = sum(
                         report["enrichment"].get(key, 0)
-                        for key in ("snippet_only", "failed", "blocked", "empty")
+                        for key in ("snippet_only", "failed", "blocked", "empty", "refresh_failed")
                     )
                     report["enrichment"]["status"] = "partial" if incomplete else "success"
+                    if incomplete:
+                        report["errors"].append(f"Enrichment: {incomplete} incomplete or failed refresh JDs")
                     repository.record_run_stage(
                         run_id,
                         "enrichment",
@@ -738,6 +751,10 @@ def daily_cycle(
                 )
                 for state in ("success", "failed", "not_started")
             }
+            report["jd_completeness"] = {
+                state: sum(row["jd_completeness"] == state for row in rows)
+                for state in ("FULL", "PARTIAL", "MISSING", "INACCESSIBLE", "EXPIRED")
+            }
             report["total_source_jobs"] = len(repository.all())
             report["unique_jobs"] = len(rows)
             report["discovered"] = report["inserted"] + report["changed"] + report["unchanged"]
@@ -789,6 +806,9 @@ def daily_cycle(
             item_count=int(report["telegram_sent_this_run"]),
         )
         report["status"] = "partial" if report["errors"] else "success"
+        report["outcome"] = "PARTIAL_SUCCESS" if report["errors"] else "SUCCESS"
+        if report["errors"] and not rows and not any(s.get("status") in {"success", "empty"} for s in report["sources"]):
+            report["outcome"] = "FAILED"
         repository.finish_run(
             run_id,
             status=report["status"],
@@ -803,6 +823,7 @@ def daily_cycle(
         except Exception as error:
             report["errors"].append(f"Backup: {error_label(error)}")
             report["status"] = "partial"
+            report["outcome"] = "PARTIAL_SUCCESS"
         repository.finish_run(
             run_id,
             status=report["status"],

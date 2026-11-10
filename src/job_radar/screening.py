@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from job_radar.models import normalize_semantic_text
-from job_radar.eligibility import assess_seniority, load_policy
+from job_radar.eligibility import assess_location, assess_seniority, load_policy
 
 RULES_PATH = Path(__file__).with_name("screening_rules.v4.json")
 
@@ -89,9 +89,13 @@ def screen_job(
     vienna_matches = _matched_terms(normalized_location, active_rules["vienna_terms"])
     remote_matches = _matched_terms(normalized_location, active_rules["remote_terms"])
     austria_matches = _matched_terms(normalized_location, active_rules["austria_terms"])
-    location_is_accepted = bool(vienna_matches or (remote_matches and austria_matches))
+    detailed_location = assess_location({"location": location, "description": snippet})["location_fit"]
+    location_is_accepted = bool(vienna_matches or (remote_matches and austria_matches)
+                                or detailed_location == "austria_remote")
+    if detailed_location == "mismatch":
+        location_is_accepted = False
     location_is_unknown = not normalized_location or (remote_matches and not austria_matches)
-    if not location_is_accepted and not location_is_unknown:
+    if not location_is_accepted and (not location_is_unknown or detailed_location == "mismatch"):
         reasons.append(
             {
                 "code": "location_outside_target",
