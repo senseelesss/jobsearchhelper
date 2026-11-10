@@ -201,7 +201,7 @@ def test_scoring_candidates_include_active_review_and_incomplete_but_not_expired
 
 def test_score_is_cached_and_snippet_score_is_forced_low_confidence(tmp_path) -> None:
     repository = JobRepository(tmp_path / "jobs.db")
-    profile = load_candidate_profile(Path("data/candidate_profile.yaml"))
+    profile = load_candidate_profile(Path("candidate_profile.example.yaml"))
     provider = FakeProvider(score(confidence="high"))
     try:
         insert_job(
@@ -236,7 +236,7 @@ def test_score_is_cached_and_snippet_score_is_forced_low_confidence(tmp_path) ->
 
 def test_draft_rewrites_once_and_keeps_stored_score(tmp_path) -> None:
     repository = JobRepository(tmp_path / "jobs.db")
-    profile = load_candidate_profile(Path("data/candidate_profile.yaml"))
+    profile = load_candidate_profile(Path("candidate_profile.example.yaml"))
     provider = FakeProvider(first_draft_words=120, rewrite_words=180)
     try:
         insert_job(
@@ -268,7 +268,7 @@ def test_draft_rewrites_once_and_keeps_stored_score(tmp_path) -> None:
 
 def test_failed_rewrite_does_not_discard_or_repeat_score(tmp_path) -> None:
     repository = JobRepository(tmp_path / "jobs.db")
-    profile = load_candidate_profile(Path("data/candidate_profile.yaml"))
+    profile = load_candidate_profile(Path("candidate_profile.example.yaml"))
     provider = FakeProvider(first_draft_words=120, rewrite_words=120)
     try:
         insert_job(
@@ -321,7 +321,7 @@ def test_application_queue_and_funnel_include_unscored_active_jobs(tmp_path) -> 
 
 
 def test_required_cache_keys_are_stable() -> None:
-    profile = load_candidate_profile(Path("data/candidate_profile.yaml"))
+    profile = load_candidate_profile(Path("candidate_profile.example.yaml"))
     profile_hash = candidate_profile_hash(profile)
     score_key = score_cache_key(
         "semantic-example",
@@ -361,7 +361,7 @@ def test_application_queue_rejects_stale_score_after_description_change(
     tmp_path,
 ) -> None:
     repository = JobRepository(tmp_path / "jobs.db")
-    profile = load_candidate_profile(Path("data/candidate_profile.yaml"))
+    profile = load_candidate_profile(Path("candidate_profile.example.yaml"))
     provider = FakeProvider()
     try:
         item = insert_job(
@@ -427,7 +427,7 @@ def test_application_queue_rejects_stale_score_after_description_change(
 
 def test_application_queue_rejects_stale_draft_prompt_or_model(tmp_path) -> None:
     repository = JobRepository(tmp_path / "jobs.db")
-    profile = load_candidate_profile(Path("data/candidate_profile.yaml"))
+    profile = load_candidate_profile(Path("candidate_profile.example.yaml"))
     provider = FakeProvider()
     try:
         insert_job(
@@ -477,7 +477,7 @@ def test_application_queue_rejects_stale_draft_prompt_or_model(tmp_path) -> None
 
 def test_retry_failed_scores_only_previous_failures(tmp_path) -> None:
     repository = JobRepository(tmp_path / "jobs.db")
-    profile = load_candidate_profile(Path("data/candidate_profile.yaml"))
+    profile = load_candidate_profile(Path("candidate_profile.example.yaml"))
     provider = FakeProvider()
     try:
         insert_job(

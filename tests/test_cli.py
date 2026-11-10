@@ -466,6 +466,7 @@ def test_application_report_exports_json_packages(tmp_path) -> None:
         credentials_path=Path(tmp_path / "credentials.json"),
         token_path=Path(tmp_path / "token.json"),
         openai_model="test-model",
+        candidate_profile_path=Path("candidate_profile.example.yaml"),
     )
     repository = JobRepository(settings.database_path)
     try:
@@ -501,7 +502,7 @@ def test_application_report_exports_json_packages(tmp_path) -> None:
                 "semantic_key": item.semantic_key,
                 "canonical_dedupe_key": item.dedupe_key,
                 "candidate_profile_hash": candidate_profile_hash(
-                    load_candidate_profile(Path("data/candidate_profile.yaml"))
+                    load_candidate_profile(Path("candidate_profile.example.yaml"))
                 ),
                 "description_hash": description_hash(description),
                 "prompt_version": SCORE_PROMPT_VERSION,
