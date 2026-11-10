@@ -1,0 +1,18 @@
+[
+  {"id":"student-software","title":"Werkstudent Softwareentwicklung (20h)","location":"Wien","description":"Python REST APIs and SQL.","expected":"HIGH"},
+  {"id":"junior-python","title":"Junior Python Developer (25h/Woche)","location":"Vienna","expected":"HIGH"},
+  {"id":"junior-automation","title":"Junior Automation Engineer","location":"Vienna","description":"Part-time possible. Python integrations.","expected":"HIGH"},
+  {"id":"junior-backend","title":"Junior Backend Developer","location":"Vienna","expected":"MEDIUM"},
+  {"id":"junior-js","title":"Junior JavaScript Developer","location":"Vienna","expected":"MEDIUM"},
+  {"id":"unspecified-software","title":"Software Engineer","location":"Vienna hybrid","description":"Build Python REST APIs.","expected":"MEDIUM"},
+  {"id":"three-years","title":"Professional Test Automation Engineer","location":"Wien","description":"3 years of professional testing experience required. Part-time possible.","expected":"LOW"},
+  {"id":"fulltime-data","title":"Data Engineer","location":"Wien","description":"Full-time only. 38.5 hours/week. Python SQL.","match_score":86,"expected":"EXCLUDED"},
+  {"id":"fulltime-testing","title":"Test Automation Engineer","location":"Wien","description":"38,5 Stunden pro Woche. Python testing.","expected":"EXCLUDED"},
+  {"id":"domain-manager","title":"IT Domain Manager","location":"Wien","description":"Python and AI banking systems.","expected":"EXCLUDED"},
+  {"id":"solutions-architect","title":"Solutions Architect","location":"Wien","description":"Minimum 5 years of professional experience required.","expected":"EXCLUDED"},
+  {"id":"sales","title":"Enterprise Account Executive","location":"Vienna","description":"Sell software to enterprise customers.","expected":"EXCLUDED"},
+  {"id":"senior","title":"Senior Software Engineer","location":"Vienna","description":"5+ years of professional experience required. Python.","expected":"EXCLUDED"},
+  {"id":"preferred-experience","title":"Junior Python Developer","location":"Vienna","description":"5 years experience preferred, not required.","expected":"MEDIUM"},
+  {"id":"other-stack","title":"Software Engineer (25h/Woche)","location":"Vienna","description":"COBOL mainframe and SQL.","expected":"LOW"},
+  {"id":"student-adjacent","title":"Student Support - Agile Delivery (25h/week)","location":"Vienna","description":"Support agile delivery teams.","expected":"MEDIUM"}
+]

@@ -1,7 +1,84 @@
 # Implementation and verification log
 
-As of 2026-11-05. This file records observed results separately from the target
+As of 2026-11-08. This file records observed results separately from the target
 architecture. No claim of full unattended V1 completion is made.
+
+## Documentation checkpoint / full project audit — 2026-11-08
+
+Baseline 1c06c67 was clean; version 1.1.0 and its existing local tag are preserved.
+The [full project audit](PROJECT_AUDIT.md) records current subsystem evidence,
+historical live checks, security gates, limitations and an incremental roadmap.
+No application functionality changed. A fresh public-file copy passed 254 tests,
+Ruff, CLI help/version, configuration and temporary SQLite integrity checks.
+Additional offline reproductions confirmed cached provisional scores blocking
+later daily JD acquisition, early/detailed location disagreement and incomplete
+enrichment not necessarily marking the overall run partial. These are documented
+follow-up tasks, not fixed here. No paid calls, live collection, Telegram send,
+authoritative DB changes, push, new tag, history rewrite or deployment occurred.
+
+## Local release preparation v1.1.0 — 2026-11-08
+
+Continues from 5e6ab28. One authoritative version, CLI --version, hash-pinned
+runtime/dev/scraping/build dependencies and fresh-profile/search setup are prepared.
+Daily and application-set now honor JOB_RADAR_DB unless --database is explicit,
+matching callbacks. Set the actual authoritative DB path before upgrading; no
+existing DB is moved, merged or modified by release validation.
+
+Fresh public-file copy and new Python 3.12.14 venv: setup --no-browser, pip check,
+source/installed CLI, wheel metadata/resources, 254 tests and Ruff all passed.
+The full test run blocked socket connections/DNS; temporary SQLite and fake
+providers cover ingestion, eligibility/priority, previews, replay and persistence.
+Offline Chromium parsed two fixture jobs with network routes blocked. Lock/export
+consistency, shell syntax, ignore rules and diff whitespace also passed.
+
+No private state deleted, paid calls, real Telegram sends, push, history rewrite
+or deployment. Existing unrelated nested repository is preserved and excluded
+locally. Historical credentials/private profile exist on old master/recovery refs,
+outside release ancestry. The exposed OpenAI key matches the configured key:
+rotation is required; historical bot revocation and author-email privacy review
+remain publication gates. No credential values are printed or committed here.
+See [release audit and limitations](RELEASE_v1.1.0.md). Ubuntu CI/setup are prepared;
+target-host browser/service/reboot and unattended acceptance remain unverified.
+
+## Filtering accuracy / application priority — 2026-11-05
+
+Continues from b9a7eb3. Deterministic eligibility now derives hours, seniority,
+location/role fit, evidence and application priority separately from stored AI
+scores. No new DB columns or paid stage. Hours target 20–25, acceptable 15–30;
+required >=4 professional years excluded, preferred experience stays review.
+Priority-based A/B delivery retains existing identities/outbox and reserves one
+aged pending slot; scoring reserves FIFO backlog capacity without bulk aging
+overriding newly found target-hours student roles. Workbook/report expose top five.
+
+Saved 34-job comparison: rule pool 22→15; A/B queue 20→13; AI candidates 19→12;
+HIGH=0 / MEDIUM=9 / LOW=6 / EXCLUDED=19. Hours target=1, unknown=30, mismatch=3.
+Mock delivery=8, remaining queue=5; all 34 records retained. Existing scores and
+application events preserved; authoritative DB/profile unchanged. No paid calls,
+real messages, deployment or push. The two stored low AI results are review/45
+and review/42; earlier staging wording calling them skip was corrected.
+
+251 tests and Ruff pass. See [policy, root causes, examples and limits](APPLICATION_PRIORITY.md).
+
+## macOS staging optimization — 2026-11-05
+
+Continues from 7e8ee5cc. Current daily review has Tier A AI recommendations and
+Tier B explicitly UNSCORED actionable review, independent of scoring budget or
+provider availability. Failed/skip/hard-rejected/applied/skipped rows stay excluded.
+Bounded daily enrichment reuses existing caches and re-screens new full JDs.
+Scoring prefers actionable/part-time/full-JD candidates with backlog fairness;
+cache hits and retry cooldowns do not consume paid call slots. Existing schema,
+callbacks, notification identities and immutable outbox are preserved.
+
+Saved JD coverage: 4 full/34 source records; email-backed 0/24, direct-only 4/10.
+Offline old/new comparison on separate copies, fake scores and mock Telegram:
+budget 2 review queue 2→20 (A=2/B=18); budget 5 5→20 (A=5/B=15);
+missing provider 0→20; budget 0 22→20 because two cached review scores below 50 stay outside Tier A.
+The original DB tables were unchanged. No new paid calls, real messages or remote
+deployment occurred. Details, runtime/cost estimates, scopes and transfer checklist
+are in [MACOS_STAGING.md](MACOS_STAGING.md). Six source URLs pass local validation;
+their current website filter semantics were not live-tested.
+Validation: **195 tests passed**, including a blank-profile publishable copy;
+Ruff, diff whitespace and shell syntax checks passed.
 
 ## Production launch checkpoint — 2026-11-05
 
@@ -243,3 +320,14 @@ Remaining acceptance: user review of Excel import and real Telegram delivery,
 deployment to a chosen persistent host, restore/off-host monitoring setup and a
 seven-day unattended run. Source-query cursor resume and more conservative fuzzy
 repost matching remain future work. Automatic application submission is absent.
+
+
+## 2026-11-10 — Collection/enrichment v2
+
+Independent enrichment selection, bounded stale refresh/durable retry state,
+quality/provenance reporting, Austria-remote screening fix and last-good-content
+protection are implemented. Public Absolventen RSS plus documented Greenhouse/Lever
+feeds passed bounded live import/replay checks; the other requested boards have
+explicit access/terms blockers. See [measured evidence and acceptance commands](COLLECTION_V2.md).
+Baseline 254 tests; expanded suite 294 passed, Ruff passed. No paid calls, live
+Telegram sends, application submissions, main updates or deployment.

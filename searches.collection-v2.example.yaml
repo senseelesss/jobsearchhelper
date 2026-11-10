@@ -1,0 +1,15 @@
+# Bounded, opt-in acceptance configuration; does not modify data/searches.yaml.
+# Employer tokens below are verified public boards, not invented identifiers.
+searches:
+  - name: karriere-python-wien
+    url: https://www.karriere.at/jobs/python/wien
+  - name: linkedin-python-vienna
+    url: https://www.linkedin.com/jobs/search/?keywords=python&location=Vienna%2C%20Austria
+  - name: absolventen-wien
+    url: https://www.absolventen.at/?feed=job_feed&search_location=Wien
+  - name: ketryx-public-board
+    url: https://boards-api.greenhouse.io/v1/boards/ketryx/jobs?content=true
+    enabled: false
+  - name: qualysoft-public-board
+    url: https://api.lever.co/v0/postings/qualysoft?mode=json
+    enabled: false

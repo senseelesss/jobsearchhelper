@@ -2,8 +2,9 @@ from bs4 import BeautifulSoup
 
 from job_radar.enrichment_adapters.common import (
     ParsedPage,
+    description_page,
+    structured_metadata,
     classify_common,
-    description_language,
     extract_json_ld_description,
     normalize_description,
 )
@@ -28,4 +29,4 @@ class KarriereAdapter:
             confidence = "medium"
         if not description:
             return ParsedPage("empty", error="No karriere.at full description found")
-        return ParsedPage("success", description, description_language(description), confidence)
+        return description_page(description, confidence, structured_metadata(document))

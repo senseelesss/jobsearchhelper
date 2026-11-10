@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:job_listing="https://www.absolventen.at">
+<channel><title>Jobs Wien</title><item><title>Junior Python Developer</title>
+<link>https://www.absolventen.at/job/junior-python-developer/?utm_source=alert</link>
+<guid isPermaLink="false">https://www.absolventen.at/job/junior-python-developer/</guid>
+<pubDate>Tue, 10 Nov 2026 07:00:00 +0000</pubDate><description/>
+<job_listing:location>Wien</job_listing:location><job_listing:company>Example GmbH</job_listing:company>
+<job_listing:job_type>Teilzeit</job_listing:job_type></item></channel></rss>

@@ -1,7 +1,8 @@
 from job_radar.enrichment_adapters.common import (
     ParsedPage,
+    description_page,
+    structured_metadata,
     classify_common,
-    description_language,
     extract_element_text,
     extract_json_ld_description,
 )
@@ -26,9 +27,4 @@ class LinkedInAdapter:
             confidence = "medium"
         if not description:
             return ParsedPage("empty", error="LinkedIn description was empty")
-        return ParsedPage(
-            "success",
-            description=description,
-            description_language=description_language(description),
-            description_confidence=confidence,
-        )
+        return description_page(description, confidence, structured_metadata(document))

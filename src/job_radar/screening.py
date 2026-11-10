@@ -5,13 +5,9 @@ from pathlib import Path
 from typing import Any
 
 from job_radar.models import normalize_semantic_text
+from job_radar.eligibility import assess_location, assess_seniority, load_policy
 
-RULES_PATH = Path(__file__).with_name("screening_rules.v3.json")
-EXCESSIVE_EXPERIENCE_PATTERN = re.compile(
-    r"\b(?:at least|minimum|mindestens)?\s*"
-    r"(?:5|[6-9]|[1-9]\d)\+?\s*(?:years?|jahre[n]?)\b",
-    re.IGNORECASE,
-)
+RULES_PATH = Path(__file__).with_name("screening_rules.v4.json")
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,13 +47,13 @@ def screen_job(
     if fetch_status == "expired" or fetch_error.casefold() == "expired listing":
         reasons.append({"code": "expired_vacancy", "severity": "hard"})
 
-    junior_matches = _matched_terms(
-        normalized_title, active_rules["junior_context_terms"]
-    )
-    seniority_matches = _matched_terms(
-        normalized_title, active_rules["hard_seniority_terms"]
-    )
-    if seniority_matches and not junior_matches:
+    junior_matches = _matched_terms(normalized_title, active_rules["junior_context_terms"])
+    seniority_matches = _matched_terms(normalized_title, active_rules["hard_seniority_terms"])
+    seniority = assess_seniority({"title": title, "description": snippet})
+    if (seniority_matches and not junior_matches) or (
+        seniority["seniority_fit"] == "mismatch"
+        and seniority["seniority_level"] in {"manager", "architect", "lead"}
+    ):
         reasons.append(
             {
                 "code": "seniority",
@@ -66,13 +62,15 @@ def screen_job(
             }
         )
 
-    experience_match = EXCESSIVE_EXPERIENCE_PATTERN.search(normalized_context)
-    if experience_match:
+    if (
+        seniority["required_years"]
+        and seniority["required_years"] >= load_policy()["excluded_required_years"]
+    ):
         reasons.append(
             {
                 "code": "excessive_experience",
                 "severity": "hard",
-                "matched_text": experience_match.group(0),
+                "matched_text": "; ".join(seniority["seniority_evidence"])[:400],
             }
         )
 
@@ -91,9 +89,13 @@ def screen_job(
     vienna_matches = _matched_terms(normalized_location, active_rules["vienna_terms"])
     remote_matches = _matched_terms(normalized_location, active_rules["remote_terms"])
     austria_matches = _matched_terms(normalized_location, active_rules["austria_terms"])
-    location_is_accepted = bool(vienna_matches or (remote_matches and austria_matches))
+    detailed_location = assess_location({"location": location, "description": snippet})["location_fit"]
+    location_is_accepted = bool(vienna_matches or (remote_matches and austria_matches)
+                                or detailed_location == "austria_remote")
+    if detailed_location == "mismatch":
+        location_is_accepted = False
     location_is_unknown = not normalized_location or (remote_matches and not austria_matches)
-    if not location_is_accepted and not location_is_unknown:
+    if not location_is_accepted and (not location_is_unknown or detailed_location == "mismatch"):
         reasons.append(
             {
                 "code": "location_outside_target",
@@ -105,24 +107,18 @@ def screen_job(
     if any(reason["severity"] == "hard" for reason in reasons):
         status = "rejected"
     else:
-        priority_matches = _matched_terms(
-            normalized_context, active_rules["priority_terms"]
-        )
+        priority_matches = _matched_terms(normalized_context, active_rules["priority_terms"])
         technical_matches = _matched_terms(
             normalized_context, active_rules["relevant_technical_terms"]
         )
         technical_title_matches = _matched_terms(
             normalized_title, active_rules["relevant_technical_terms"]
         )
-        adjacent_matches = _matched_terms(
-            normalized_title, active_rules["adjacent_review_terms"]
-        )
+        adjacent_matches = _matched_terms(normalized_title, active_rules["adjacent_review_terms"])
         always_review_matches = _matched_terms(
             normalized_title, active_rules["always_review_terms"]
         )
-        if always_review_matches or (
-            adjacent_matches and not technical_title_matches
-        ):
+        if always_review_matches or (adjacent_matches and not technical_title_matches):
             status = "review"
             reasons.append(
                 {

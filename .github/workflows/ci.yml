@@ -1,19 +1,25 @@
 name: CI
 
+permissions:
+  contents: read
+
 on:
   push:
   pull_request:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
-      - run: pip install -e ".[dev]"
+          cache-dependency-path: requirements.lock
+      - run: pip install --require-hashes -r requirements.lock
+      - run: pip install --no-deps --no-build-isolation -e ".[dev,scraping]"
       - run: cp candidate_profile.example.yaml data/candidate_profile.yaml
       - run: pytest
       - run: ruff check .
