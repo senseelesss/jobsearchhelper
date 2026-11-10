@@ -252,3 +252,16 @@ uv export --locked --all-extras --group release --no-emit-project \
 - [Progress](docs/PROGRESS.md): dated verification history.
 - Other MVP/design/source-audit documents are retained historical rationale; they
   are not installation instructions or proof of the current runtime.
+
+## Telegram Control Center v2
+
+`telegram-poll` now provides an owner-only interactive dashboard, bounded on-demand
+`daily` searches, complete job browsing, application status buttons, statistics and
+persistent Ukrainian (default), German and English settings. Set the numeric
+`TELEGRAM_OWNER_ID` to the same ID as your private `TELEGRAM_CHAT_ID`. Existing
+collection and notification state remain authoritative; UI state uses a private
+SQLite sidecar. Telegram never triggers paid AI scoring.
+
+See [Control Center operations and integration](docs/TELEGRAM_CONTROL_CENTER.md)
+for commands, offline walkthroughs, isolated live testing, limits, recovery,
+notification preferences and Collection Engine v2 integration requirements.
