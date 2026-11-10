@@ -12,7 +12,9 @@ def normalize_semantic_text(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", normalized).strip()
 
 
-def semantic_key(title: str, company: str, location: str) -> str:
+def semantic_key(title: str, company: str, location: str, native_key: str = "") -> str:
+    if native_key and (not title.strip() or not company.strip()):
+        return f"native-{native_key}"
     identity = "\n".join(
         normalize_semantic_text(value) for value in (title, company, location)
     )
@@ -52,7 +54,7 @@ class Job:
 
     @property
     def semantic_key(self) -> str:
-        return semantic_key(self.title, self.company, self.location)
+        return semantic_key(self.title, self.company, self.location, self.dedupe_key)
 
     def to_dict(self) -> dict[str, str]:
         return {

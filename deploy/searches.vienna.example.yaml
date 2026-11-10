@@ -1,9 +1,22 @@
-# Starting watchlist. Replace with your own filtered public search URLs.
-# Unknown hours stay in the review queue; absence from a scan is never expiry.
+# Six complementary profiles. Start with pages=1, limit=15, details=0,
+# enrich-limit=5 GLOBAL and score-limit=5 GLOBAL. These are editable public URLs;
+# local validation cannot prove a site's current filter semantics or inventory.
 searches:
-  - name: karriere-python-vienna
+  - name: python-wien-de
     enabled: true
     url: https://www.karriere.at/jobs/python/wien
-  - name: linkedin-part-time-python-vienna
+  - name: junior-backend-en
     enabled: true
-    url: https://www.linkedin.com/jobs/search/?keywords=python&location=Vienna%2C%20Austria&f_E=1%2C2&f_JT=P&f_TPR=r604800
+    url: https://www.linkedin.com/jobs/search/?keywords=%22junior%20backend%22%20OR%20%22junior%20python%22&location=Vienna%2C%20Austria&f_E=1%2C2&f_JT=P&f_TPR=r604800
+  - name: werkstudent-working-student
+    enabled: true
+    url: https://www.linkedin.com/jobs/search/?keywords=%28Werkstudent%20OR%20%22working%20student%22%29%20software&location=Vienna%2C%20Austria&f_E=1%2C2&f_TPR=r604800
+  - name: automation-integration-de-en
+    enabled: true
+    url: https://www.linkedin.com/jobs/search/?keywords=%28Automation%20OR%20Integration%20OR%20Automatisierung%29%20software&location=Vienna%2C%20Austria&f_E=1%2C2&f_JT=P&f_TPR=r604800
+  - name: qa-testautomatisierung-de
+    enabled: true
+    url: https://www.karriere.at/jobs/testautomatisierung/wien
+  - name: junior-data-ai-en
+    enabled: true
+    url: https://www.linkedin.com/jobs/search/?keywords=%22data%20engineer%22%20OR%20%22AI%20engineer%22&location=Vienna%2C%20Austria&f_E=1%2C2&f_JT=P&f_TPR=r604800

@@ -18,7 +18,7 @@ def _scrape(args: argparse.Namespace) -> None:
     client = (
         PlaywrightClient(timeout_seconds=20, headed=args.headed)
         if args.transport == "playwright"
-        else HttpClient(timeout_seconds=20, rate_limit_seconds=2, retries=0)
+        else HttpClient(timeout_seconds=20, rate_limit_seconds=2, retries=0, same_host_redirects=True)
     )
     source = args.source or (validate_search_url(args.url).source if args.url else "karriere")
     default_locations = {"karriere": "wien", "linkedin": "Vienna, Austria"}
@@ -121,7 +121,7 @@ def _daily(args, settings):
     except Exception as error:
         searches = []
         initial_errors.append(f"Search configuration: {error_label(error)}")
-    client = PlaywrightClient() if args.transport == "playwright" else HttpClient(15, 2, 1)
+    client = PlaywrightClient() if args.transport == "playwright" else HttpClient(15, 2, 1, same_host_redirects=True)
     def collector(url):
         return collect_search(client, url, limit=args.limit, max_pages=args.pages, details=args.details)
     def email_fetcher():
@@ -132,14 +132,17 @@ def _daily(args, settings):
         return fetch_messages(service, "newer_than:10d (from:jobalerts-noreply@linkedin.com OR from:donotreply@jobalert.indeed.com)", limit=args.email_limit)
     provider = None
     profile = None
-    if args.score_limit:
-        from job_radar.candidate import load_candidate_profile
-        from job_radar.ai import OpenAIProvider
+    from job_radar.candidate import load_candidate_profile
+    try:
+        profile = load_candidate_profile(settings.candidate_profile_path)
+    except Exception as error:
+        initial_errors.append(f"Scoring profile: {error_label(error)}")
+    if args.score_limit and profile is not None:
         try:
-            profile = load_candidate_profile(settings.candidate_profile_path)
             if not any(profile.get(key) for key in ("experience", "projects", "education")):
                 raise ValueError("Fill the private candidate profile before scoring")
             if settings.openai_api_key:
+                from job_radar.ai import OpenAIProvider
                 provider = OpenAIProvider(
                     settings.openai_api_key, settings.openai_model,
                     timeout_seconds=settings.openai_timeout_seconds,
@@ -152,7 +155,7 @@ def _daily(args, settings):
     if args.telegram and (not settings.telegram_bot_token or not settings.telegram_chat_id):
         initial_errors.append("Telegram configuration missing; run telegram-connect")
     result = daily_cycle(
-        Path(args.database), searches, collector,
+        Path(args.database) if args.database else settings.database_path, searches, collector,
         fetch_emails=None if args.no_email else email_fetcher,
         provider=provider, profile=profile, score_limit=args.score_limit,
         telegram=TelegramApiClient(settings.telegram_bot_token)
@@ -164,15 +167,22 @@ def _daily(args, settings):
         on_progress=lambda message: print(message, flush=True),
         initial_errors=initial_errors,
         score_retry_failed=args.score_retry_failed,
+        score_model=settings.openai_model,
+        enrichment_client=HttpClient(settings.enrichment_timeout_seconds,
+                                     settings.enrichment_rate_limit_seconds,
+                                     settings.enrichment_retries, same_host_redirects=True),
+        enrichment_limit=args.enrich_limit,
+        enrichment_freshness_hours=settings.enrichment_freshness_hours,
+        enrichment_retry_hours=settings.enrichment_retry_hours,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
     if result["status"] != "success":
         raise SystemExit(1)
 
 
-def _application_set(args):
+def _application_set(args, settings=None):
     from job_radar.runner import RunLock
-    path = Path(args.database)
+    path = Path(args.database) if args.database else (settings or Settings.from_env()).database_path
     with RunLock(path.with_suffix(path.suffix + ".run.lock")), JobRepository(path) as repository:
         result = repository.set_application(args.key, args.state, args.request_id, note=args.note)
     print(f"Application status: {result}")
@@ -279,6 +289,7 @@ def _enrich(args: argparse.Namespace, settings: Settings) -> None:
                 timeout_seconds=settings.enrichment_timeout_seconds,
                 rate_limit_seconds=settings.enrichment_rate_limit_seconds,
                 retries=settings.enrichment_retries,
+                same_host_redirects=True,
             ),
             only=args.only,
             retry_failed=args.retry_failed,
@@ -304,6 +315,9 @@ def _enrichment_report(args: argparse.Namespace, settings: Settings) -> None:
     finally:
         repository.close()
 
+    if getattr(args, "json", False):
+        print(json.dumps(rows, ensure_ascii=False, indent=2))
+        return
     print("source\ttitle\tfetch_status\tfetch_error\thttp_status\tfinal_url")
     for row in rows:
         final_url = str(row["final_url"])
@@ -708,10 +722,12 @@ def _run(args: argparse.Namespace, settings: Settings) -> None:
 
 
 def parser() -> argparse.ArgumentParser:
+    from job_radar import __version__
     root = argparse.ArgumentParser(
         prog="job-radar",
         description="Incremental email-first vacancy pipeline and application queue.",
     )
+    root.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     commands = root.add_subparsers(dest="command", required=True)
 
     scrape = commands.add_parser("scrape", help="Probe one public search page into JSON")
@@ -733,14 +749,16 @@ def parser() -> argparse.ArgumentParser:
     for name in ("telegram-connect", "telegram-check"):
         connection = commands.add_parser(name)
         connection.add_argument("--test-message", action="store_true")
-    daily = commands.add_parser("daily", help="Collect saved searches and optional email into a test DB")
+    daily = commands.add_parser("daily", help="Collect saved searches and optional email into SQLite")
     daily.add_argument("--searches", default="data/searches.yaml")
-    daily.add_argument("--database", default="data/mvp-v1-test.db")
+    daily.add_argument("--database", help="Override JOB_RADAR_DB (default: data/jobs.db)")
     daily.add_argument("--output", default="outputs/daily")
     daily.add_argument("--transport", choices=("playwright", "http"), default="playwright")
     daily.add_argument("--pages", type=int, choices=range(1,11), default=2, metavar="1..10")
     daily.add_argument("--limit", type=int, choices=range(1,501), default=25, metavar="1..500")
-    daily.add_argument("--details", type=int, choices=range(26), default=5, metavar="0..25")
+    daily.add_argument("--details", type=int, choices=range(26), default=0, metavar="0..25")
+    daily.add_argument("--enrich-limit", type=int, choices=range(26), default=5, metavar="0..25",
+                       help="Global eligible JD request budget before scoring")
     daily.add_argument("--email-limit", type=int, choices=range(1,1001), default=100, metavar="1..1000")
     daily.add_argument("--no-email", action="store_true")
     daily.add_argument("--score-limit", type=int, choices=range(26), default=0, metavar="0..25")
@@ -753,7 +771,7 @@ def parser() -> argparse.ArgumentParser:
     application.add_argument("state")
     application.add_argument("--request-id", required=True)
     application.add_argument("--note", default="")
-    application.add_argument("--database", default="data/mvp-v1-test.db")
+    application.add_argument("--database", help="Override JOB_RADAR_DB (default: data/jobs.db)")
 
     backfill = commands.add_parser("backfill")
     backfill.add_argument("--days", type=int, default=10)
@@ -774,6 +792,7 @@ def parser() -> argparse.ArgumentParser:
     enrich.add_argument("--refresh", action="store_true")
     report = commands.add_parser("enrichment-report")
     report.add_argument("--only", choices=("eligible", "review"), default="eligible")
+    report.add_argument("--json", action="store_true", help="Include completeness, provenance and retry state")
     score = commands.add_parser("score")
     score_scope = score.add_mutually_exclusive_group()
     score_scope.add_argument("--only", choices=("eligible", "review"))
@@ -828,7 +847,7 @@ def main() -> None:
     elif args.command == "daily":
         _daily(args, settings)
     elif args.command == "application-set":
-        _application_set(args)
+        _application_set(args, settings)
     elif args.command == "scrape":
         _scrape(args)
     elif args.command == "backfill":

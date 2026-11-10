@@ -10,12 +10,18 @@ class PlaywrightClient:
         self.timeout_ms = timeout_seconds * 1000
         self.headed = headed
         self._last_action = 0.0
+        self._feed_client = None
 
     def _wait(self) -> None:
         time.sleep(max(0, 2 - (time.monotonic() - self._last_action)))
         self._last_action = time.monotonic()
 
     def get(self, url: str) -> HttpResponse:
+        if urlsplit(url).hostname in {"www.absolventen.at", "boards-api.greenhouse.io", "api.lever.co", "api.eu.lever.co"}:
+            from job_radar.http import HttpClient
+            if self._feed_client is None:
+                self._feed_client = HttpClient(self.timeout_ms / 1000, 2, 1, same_host_redirects=True)
+            return self._feed_client.get(url)
         self._wait()
         try:
             from playwright.sync_api import sync_playwright
