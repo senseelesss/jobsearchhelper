@@ -284,6 +284,13 @@ def _funnel(repository, rows, tier_a, tier_b, chat_id, report):
 def _deliver(repository, report, rows, telegram, chat_id, day, output):
     from job_radar.telegram import TelegramRejectedRequest
 
+    from job_radar.control.notifications import preferences
+
+    ui_preferences = preferences(repository)
+    if ui_preferences is not None and not ui_preferences.get("notifications", True):
+        telegram = None
+        report["telegram"] = "disabled"
+
     chat_hash = hashlib.sha256(chat_id.encode()).hexdigest()[:16]
     report["unknown_deliveries"] = repository.connection.execute(
         "SELECT COUNT(*) FROM notification_outbox WHERE notification_key LIKE ? AND status='unknown'",
@@ -378,6 +385,15 @@ def _deliver(repository, report, rows, telegram, chat_id, day, output):
                 {"text": "Skip", "callback_data": f"skipjob:{row['application_key']}"},
             ]
         )
+    if ui_preferences is not None:
+        from job_radar.control.notifications import digest
+        from job_radar.control.state import ControlStore
+        database = Path(repository.connection.execute("PRAGMA database_list").fetchone()[2])
+        store = ControlStore(database)
+        try:
+            text, buttons = digest(report, selected, day, ui_preferences.get("language", "uk"), store)
+        finally:
+            store.close()
     (output / "telegram-preview.txt").write_text(text)
     report["preview_items"] = len(selected)
     report["preview_tiers"] = {
@@ -397,6 +413,7 @@ def _deliver(repository, report, rows, telegram, chat_id, day, output):
                 json.dumps(
                     {
                         "text": text,
+                        "item_count": len(selected),
                         "reply_markup": {"inline_keyboard": buttons} if buttons else None,
                     },
                     ensure_ascii=False,
@@ -437,7 +454,9 @@ def _deliver(repository, report, rows, telegram, chat_id, day, output):
         repository.connection.commit()
         report["telegram"] = "sent"
         report["telegram_sent_this_run"] = True
-        report["alert_items"] = len((payload.get("reply_markup") or {}).get("inline_keyboard", []))
+        report["alert_items"] = payload.get(
+            "item_count", len((payload.get("reply_markup") or {}).get("inline_keyboard", []))
+        )
     except TelegramRejectedRequest:
         repository.connection.execute(
             "UPDATE notification_outbox SET status='pending' WHERE notification_key=?",

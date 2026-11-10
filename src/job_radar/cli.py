@@ -599,30 +599,14 @@ def _telegram_send(args: argparse.Namespace, settings: Settings) -> None:
     )
 
 
-def _telegram_poll(settings: Settings) -> None:
-    from job_radar.candidate import candidate_profile_hash, load_candidate_profile
-    from job_radar.telegram import TelegramApiClient, poll_callbacks
+def _telegram_poll(settings: Settings, args) -> None:
+    import asyncio
+    from job_radar.control.runtime import poll
 
-    if not settings.telegram_bot_token or not settings.telegram_chat_id:
-        raise RuntimeError(
-            "TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are required"
-        )
-    repository = JobRepository(settings.database_path)
-    profile_hash = candidate_profile_hash(
-        load_candidate_profile(settings.candidate_profile_path)
-    )
     try:
-        poll_callbacks(
-            repository,
-            TelegramApiClient(settings.telegram_bot_token),
-            settings.telegram_chat_id,
-            profile_hash,
-            settings.openai_model,
-        )
+        asyncio.run(poll(settings, args))
     except KeyboardInterrupt:
         print("Telegram polling stopped")
-    finally:
-        repository.close()
 
 
 def _screen(settings: Settings) -> None:
@@ -821,7 +805,17 @@ def parser() -> argparse.ArgumentParser:
     telegram_send_scope.add_argument("--limit", type=int, default=3)
     telegram_send_scope.add_argument("--all", action="store_true")
     telegram_send.add_argument("--force", action="store_true")
-    commands.add_parser("telegram-poll", help="Poll Telegram callback actions")
+    control = commands.add_parser("telegram-poll", help="Owner-only interactive Telegram Control Center")
+    import os
+    control.add_argument("--owner-id", type=int, default=os.getenv("TELEGRAM_OWNER_ID"))
+    control.add_argument("--database", help="Explicit isolated or production database")
+    control.add_argument("--searches", default="data/searches.yaml")
+    control.add_argument("--output", default="outputs/telegram")
+    control.add_argument("--cooldown", type=int, default=300)
+    control.add_argument("--search-timeout", type=int, default=600)
+    control.add_argument("--search-limit", type=int, default=15)
+    control.add_argument("--max-pages", type=int, default=2)
+    control.add_argument("--transport", choices=("playwright", "http"), default="playwright")
     commands.add_parser("screen")
     commands.add_parser("stats")
     run = commands.add_parser(
@@ -871,7 +865,7 @@ def main() -> None:
     elif args.command == "telegram-send":
         _telegram_send(args, settings)
     elif args.command == "telegram-poll":
-        _telegram_poll(settings)
+        _telegram_poll(settings, args)
     elif args.command == "screen":
         _screen(settings)
     elif args.command == "stats":
