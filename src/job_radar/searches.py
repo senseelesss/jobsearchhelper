@@ -40,8 +40,24 @@ def validate_search_url(url: str, name: str = "") -> SavedSearch:
         source, host = "linkedin", "www.linkedin.com"
         if parsed.path.rstrip("/") != "/jobs/search":
             raise ValueError("Paste a LinkedIn /jobs/search/ URL")
+    elif host in {"www.absolventen.at", "absolventen.at"}:
+        source, host = "absolventen", "www.absolventen.at"
+        if parsed.path not in {"", "/"} or dict(parse_qsl(parsed.query)).get("feed") != "job_feed":
+            raise ValueError("Use the public Absolventen job_feed RSS URL")
+    elif host == "boards-api.greenhouse.io":
+        source = "greenhouse"
+        if not re.fullmatch(r"/v1/boards/[a-zA-Z0-9_-]+/jobs/?", parsed.path):
+            raise ValueError("Use a documented Greenhouse public board feed")
+        if dict(parse_qsl(parsed.query)).get("content") != "true":
+            raise ValueError("Greenhouse board feed requires content=true")
+    elif host in {"api.lever.co", "api.eu.lever.co"}:
+        source = "lever"
+        if not re.fullmatch(r"/v0/postings/[a-zA-Z0-9_-]+/?", parsed.path):
+            raise ValueError("Use a documented Lever public postings feed")
+        if dict(parse_qsl(parsed.query)).get("mode") != "json":
+            raise ValueError("Lever public feed requires mode=json")
     else:
-        raise ValueError("Supported search hosts: karriere.at and LinkedIn")
+        raise ValueError("Supported search hosts: karriere.at, LinkedIn, Absolventen and public ATS feeds")
     pairs = []
     for key, value in parse_qsl(parsed.query, keep_blank_values=True):
         if key.lower() in {"token", "access_token", "password", "session", "li_at"}:
