@@ -1,5 +1,5 @@
 [Unit]
-Description=Job Radar Telegram status callbacks
+Description=Job Radar Telegram Control Center
 After=network-online.target
 Wants=network-online.target
 
@@ -16,7 +16,9 @@ StateDirectory=job-radar
 StateDirectoryMode=0700
 CacheDirectory=job-radar
 CacheDirectoryMode=0700
-ExecStart=/opt/job-radar/.venv/bin/python -u -m job_radar.cli telegram-poll
+ExecStart=/opt/job-radar/.venv/bin/python -u -m job_radar.cli telegram-poll --searches /etc/job-radar-searches.yaml --output /var/lib/job-radar/telegram-output
+# SIGTERM reaches the supervisor and its CLI child on service stop; restart preserves SQLite state.
+KillMode=control-group
 Restart=always
 RestartSec=15
 UMask=0077

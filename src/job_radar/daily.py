@@ -16,11 +16,16 @@ from job_radar.parsers import parse_email
 from job_radar.runner import RunLock
 from job_radar.screening import load_rules
 from job_radar.storage import JobRepository
-from job_radar.work_hours import assess_hours
+from job_radar.eligibility import assess_application, application_sort_key, load_policy
 
 
-def review_rows(repository, profile_hash=None, model=None):
-    from job_radar.matching import application_queue
+def review_rows(repository, profile_hash=None, model=None, profile=None):
+    from job_radar.matching import (
+        application_queue,
+        _effective_vacancy,
+        SCORE_PROMPT_VERSION,
+        has_full_description,
+    )
 
     scoring = {
         row["semantic_key"]: row
@@ -35,19 +40,68 @@ def review_rows(repository, profile_hash=None, model=None):
         row.update(application_state=state["state"], application_revision=state["revision"])
         row["application_key"] = state.get("dedupe_key", row["dedupe_key"])
         current = scoring.get(row["semantic_key"], {})
+        if profile_hash is not None and model is not None:
+            identity = (
+                row["semantic_key"],
+                profile_hash,
+                _effective_vacancy(row)["description_hash"],
+                SCORE_PROMPT_VERSION,
+                model,
+            )
+            score = repository.reusable_job_score(*identity) or repository.failed_job_score(
+                *identity
+            )
+            current = {"score_status": "not_started"}
+            if score:
+                current = {
+                    **json.loads(score["result_json"]),
+                    "score_status": score["score_status"],
+                    "scored_at": score["created_at"],
+                    "score_error": score["score_error"],
+                }
+        elif model is not None and profile_hash is None:
+            # Unknown candidate context cannot establish a current successful/failed score.
+            current = {"score_status": "context_unavailable" if current else "not_started"}
         for key in (
             "match_score",
             "recommendation",
             "score_confidence",
             "provisional",
             "score_status",
+            "scored_at",
         ):
             row[key] = current.get(key)
-        row.update(assess_hours(row))
+        row.update(assess_application(row, profile))
+        row["jd_status"] = "full" if has_full_description(row) else "incomplete"
+        row["first_seen_at"] = min(x["created_at"] for x in group)
+        row["review_tier"] = (
+            "A"
+            if row["score_status"] == "success"
+            else "B"
+            if row["score_status"] in {None, "not_started"} and _reviewable(row)
+            else None
+        )
         row["alternate_source_urls"] = [x["url"] for x in group[1:]]
         row["source_keys"] = [x["dedupe_key"] for x in group]
         rows.append(row)
-    return rows
+    return sorted(rows, key=application_sort_key)
+
+
+def review_tiers(rows):
+    """Successful recommendations and honestly unscored review are independent queues."""
+    tier_a, tier_b = [], []
+    for row in rows:
+        if not _reviewable(row):
+            continue
+        if row["review_tier"] == "A" and (
+            row.get("recommendation") in {"strong_apply", "apply"}
+            or (row.get("recommendation") == "review" and (row.get("match_score") or 0) >= 50)
+        ):
+            tier_a.append(row)
+        elif row["review_tier"] == "B":
+            tier_b.append(row)
+
+    return sorted(tier_a, key=application_sort_key), sorted(tier_b, key=application_sort_key)
 
 
 def _reviewable(row):
@@ -55,19 +109,28 @@ def _reviewable(row):
         not is_expired(row)
         and row["screening_status"] in {"eligible", "review"}
         and row["application_state"] in {"not_applied", "saved"}
-        and row["hours_status"] != "full_time_only"
+        and row.get("application_eligibility") != "ineligible"
     )
 
 
-def _already_alerted(repository, row, chat_hash):
+def _scoreable(row):
+    return _reviewable(row) and row.get("role_fit") in {
+        "strong",
+        "secondary",
+        "relevant",
+        "adjacent",
+    }
+
+
+def _already_alerted(repository, row, chat_hash, include_unknown=True):
     # Both native identities and the current semantic identity survive canonical switches.
     for key in row["source_keys"]:
         if repository.connection.execute(
             """SELECT 1 FROM daily_alert_items a JOIN notification_outbox n
             ON n.notification_key=a.notification_key
             WHERE a.chat_hash=? AND (a.dedupe_key=? OR a.semantic_key=?)
-            AND n.status IN ('sent', 'unknown') LIMIT 1""",
-            (chat_hash, key, row["semantic_key"]),
+            AND (n.status='sent' OR (? AND n.status='unknown')) LIMIT 1""",
+            (chat_hash, key, row["semantic_key"], include_unknown),
         ).fetchone():
             return True
     legacy = repository.telegram_delivery(row["semantic_key"])
@@ -77,8 +140,8 @@ def _already_alerted(repository, row, chat_hash):
     urls = {row["url"], *row["alternate_source_urls"]}
     for old in repository.connection.execute(
         "SELECT payload FROM notification_outbox WHERE notification_key LIKE ? "
-        "AND status IN ('sent', 'unknown')",
-        (f"daily:%:{chat_hash}",),
+        "AND (status='sent' OR (? AND status='unknown'))",
+        (f"daily:%:{chat_hash}", include_unknown),
     ):
         if urls.intersection(json.loads(old[0]).get("text", "").splitlines()):
             return True
@@ -91,8 +154,138 @@ def _write_json(path, value):
     temporary.replace(path)
 
 
+def _enrich_review(repository, rows, client, limit, profile, model, new_keys, turn):
+    from job_radar.enrichment import enrich_jobs
+    from job_radar.matching import has_full_description, scoring_plan
+
+    now = datetime.now(timezone.utc)
+    keys = set()
+    for row in rows:
+        if not _scoreable(row) or has_full_description(row):
+            continue
+        if row["fetch_status"] in {"snippet_only", "failed", "blocked", "empty"}:
+            try:
+                stamp = datetime.fromisoformat(row["fetched_at"].replace("Z", "+00:00"))
+                if (
+                    now - stamp.replace(tzinfo=stamp.tzinfo or timezone.utc)
+                ).total_seconds() < 86400:
+                    continue
+            except ValueError:
+                pass
+        keys.add(row["semantic_key"])
+    selected, _ = scoring_plan(
+        repository,
+        profile or {},
+        model or "",
+        limit=limit,
+        semantic_keys=keys,
+        new_semantic_keys=new_keys,
+        fairness_turn=turn,
+        only=None,
+        retry_after_seconds=86400,
+    )
+    ordered = [row["semantic_key"] for row in selected]
+    result = enrich_jobs(
+        repository,
+        client,
+        only=None,
+        semantic_keys=set(ordered),
+        retry_failed=True,
+        request_limit=limit,
+        max_seconds=120,
+        ordered_keys=ordered,
+    )
+    # Newly loaded requirements may hard-reject a role before any paid scoring.
+    repository.screen_keys(
+        row["dedupe_key"] for row in repository.all() if row["semantic_key"] in ordered
+    )
+    return result
+
+
+def _funnel(repository, rows, tier_a, tier_b, chat_id, report):
+    from job_radar.matching import has_full_description
+
+    active = [row for row in rows if not is_expired(row)]
+    eligible = [row for row in active if _scoreable(row)]
+    failed = [row for row in eligible if row["score_status"] == "failed"]
+    now = datetime.now(timezone.utc)
+    cooling = 0
+    for row in failed:
+        if row.get("scored_at"):
+            stamp = datetime.fromisoformat(row["scored_at"].replace("Z", "+00:00"))
+            cooling += (
+                now - stamp.replace(tzinfo=stamp.tzinfo or timezone.utc)
+            ).total_seconds() < 86400
+    chat_hash = hashlib.sha256(chat_id.encode()).hexdigest()[:16]
+    pending = sum(not _already_alerted(repository, row, chat_hash) for row in tier_a + tier_b)
+    return {
+        "database_totals": {
+            "unique_active": len(active),
+            "eligible_for_ai": len(eligible),
+            "current_scored": sum(row["score_status"] == "success" for row in active),
+            "eligible_current_scored": sum(row["score_status"] == "success" for row in eligible),
+            "unscored": sum(row["score_status"] in {None, "not_started"} for row in eligible),
+            "failed": len(failed),
+            "retry_deferred": cooling,
+            "ai_recommended": len(tier_a),
+            "rule_based_review": len(tier_b),
+            "confirmed_delivered": sum(
+                _already_alerted(repository, row, chat_hash, False) for row in rows
+            ),
+            "pending_notification_backlog": pending,
+            "full_jd_active": sum(has_full_description(row) for row in active),
+            "incomplete_jd_active": sum(not has_full_description(row) for row in active),
+            "application_priorities": {
+                level: sum(row["application_priority"] == level for row in rows)
+                for level in ("HIGH", "MEDIUM", "LOW", "EXCLUDED")
+            },
+            "hours_fits": {
+                fit: sum(row["hours_fit"] == fit for row in rows)
+                for fit in (
+                    "confirmed_target",
+                    "acceptable",
+                    "flexible_part_time",
+                    "unknown",
+                    "confirmed_mismatch",
+                )
+            },
+            "confirmed_part_time_matches": sum(
+                row["hours_fit"] in {"confirmed_target", "acceptable", "flexible_part_time"}
+                and row["application_eligibility"] != "ineligible"
+                for row in rows
+            ),
+            "seniority_mismatches": sum(row["seniority_fit"] == "mismatch" for row in rows),
+            "full_time_mismatches": sum(row['hours_mismatch_kind']=='full_time_only' for row in rows),
+            "hours_mismatches": sum(row['hours_fit']=='confirmed_mismatch' for row in rows),
+            "stored_scoring_cost_usd": round(
+                repository.connection.execute(
+                    "SELECT COALESCE(SUM(estimated_cost_usd),0) FROM job_scores"
+                ).fetchone()[0],
+                8,
+            ),
+        },
+        "this_run": {
+            "observations": report.get("discovered", 0),
+            "inserted": report["inserted"],
+            "changed": report["changed"],
+            "scored": report["scoring"]["scored"],
+            "score_failures": report["scoring"]["failed"],
+            "delivered_items": report.get("alert_items", 0),
+            "digest_sent": report["telegram_sent_this_run"],
+            "estimated_api_cost_usd": report["estimated_cost_usd"],
+        },
+    }
+
+
 def _deliver(repository, report, rows, telegram, chat_id, day, output):
     from job_radar.telegram import TelegramRejectedRequest
+
+    from job_radar.control.notifications import preferences
+
+    ui_preferences = preferences(repository)
+    if ui_preferences is not None and not ui_preferences.get("notifications", True):
+        telegram = None
+        report["telegram"] = "disabled"
 
     chat_hash = hashlib.sha256(chat_id.encode()).hexdigest()[:16]
     report["unknown_deliveries"] = repository.connection.execute(
@@ -114,28 +307,73 @@ def _deliver(repository, report, rows, telegram, chat_id, day, output):
         text += "\nPartial results: " + "; ".join(report["errors"])
     else:
         text += "\nCollection completed within configured limits."
-    if not report["scoring"]["requested"]:
-        text += "\nRule-based shortlist; AI scoring disabled."
+    text += "\nTier A: AI recommended · Tier B: UNSCORED, human review."
+    text += (
+        f"\nTier A: {report['review_tiers']['ai_recommended']} · "
+        f"Tier B: {report['review_tiers']['awaiting_ai']}"
+    )
     # Bound the preamble too; errors never contain raw external response bodies.
     text = text[:1800]
     buttons, selected = [], []
-    for row in candidates[:8]:
+    ordered = sorted(candidates, key=application_sort_key)
+    base_text = text
+    lines = []
+
+    def card(row):
         score = row.get("match_score")
-        label = (
-            f"Technical match: {score}/100" if score is not None else "Technical match: unscored"
+        ai = (
+            f"Tier A · {row['recommendation']} · confidence: {row['score_confidence']} · {score}/100"
+            if row["review_tier"] == "A"
+            else "Tier B · UNSCORED"
         )
         if row.get("provisional") and score is not None:
-            label += " (provisional)"
-        line = (
-            f"\n\n{row['title'][:120]} · {row['company'][:80]}\n{label}\n"
-            f"Hours: {row['hours_status']}\n{row['url']}"
+            ai += " (provisional)"
+        url = row["url"] if len(row["url"]) <= 180 else "Open vacancy using the button below"
+        return (
+            f"\n\n{row['title'][:85]} · {row['company'][:40]}\n{ai}\n"
+            f"Priority: {row['application_priority']} · Hours: {row['hours_fit']}\n"
+            f"Seniority: {row['seniority_fit']} · JD: {row['jd_status']}\n"
+            f"{row['eligibility_summary'][:85]}\n{url}"
         )
-        if len((text + line).encode("utf-16-le")) // 2 > 3800:
+
+    def fits(parts):
+        return len((base_text + "".join(parts)).encode("utf-16-le")) // 2 <= 3800
+
+    for row in ordered:
+        line = card(row)
+        if len(selected) >= 8:
             break
-        text += line
+        if not fits(lines + [line]):
+            continue
+        lines.append(line)
         selected.append(row)
+    # Acknowledge only selected identities; reserve the final fitting slot for an
+    # old pending item so continuous new HIGH jobs cannot starve existing backlog.
+    from job_radar.eligibility import _stamp
+
+    age_limit = (
+        datetime.fromisoformat(day).replace(tzinfo=timezone.utc).timestamp()
+        - load_policy()["notification_aging_days"] * 86400
+    )
+    waiting = [row for row in ordered if _stamp(row.get("first_seen_at")) <= age_limit]
+    oldest = (
+        min(waiting, key=lambda row: (_stamp(row.get("first_seen_at")), row["dedupe_key"]))
+        if waiting
+        else None
+    )
+    if oldest is not None and oldest not in selected:
+        line = card(oldest)
+        while selected and (len(selected) >= 8 or not fits(lines + [line])):
+            selected.pop()
+            lines.pop()
+        if fits(lines + [line]):
+            selected.append(oldest)
+            lines.append(line)
+    text = base_text + "".join(lines)
+    for row in selected:
         buttons.append(
             [
+                {"text": "Open", "url": row["url"]},
                 {
                     "text": f"Applied: {row['title'][:25]}",
                     "callback_data": f"applyjob:{row['application_key']}",
@@ -143,8 +381,20 @@ def _deliver(repository, report, rows, telegram, chat_id, day, output):
                 {"text": "Skip", "callback_data": f"skipjob:{row['application_key']}"},
             ]
         )
+    if ui_preferences is not None:
+        from job_radar.control.notifications import digest
+        from job_radar.control.state import ControlStore
+        database = Path(repository.connection.execute("PRAGMA database_list").fetchone()[2])
+        store = ControlStore(database)
+        try:
+            text, buttons = digest(report, selected, day, ui_preferences.get("language", "uk"), store)
+        finally:
+            store.close()
     (output / "telegram-preview.txt").write_text(text)
     report["preview_items"] = len(selected)
+    report["preview_tiers"] = {
+        tier: sum(row["review_tier"] == tier for row in selected) for tier in ("A", "B")
+    }
     report["alert_items"] = 0
     if telegram is None:
         return
@@ -159,6 +409,7 @@ def _deliver(repository, report, rows, telegram, chat_id, day, output):
                 json.dumps(
                     {
                         "text": text,
+                        "item_count": len(selected),
                         "reply_markup": {"inline_keyboard": buttons} if buttons else None,
                     },
                     ensure_ascii=False,
@@ -199,7 +450,9 @@ def _deliver(repository, report, rows, telegram, chat_id, day, output):
         repository.connection.commit()
         report["telegram"] = "sent"
         report["telegram_sent_this_run"] = True
-        report["alert_items"] = len((payload.get("reply_markup") or {}).get("inline_keyboard", []))
+        report["alert_items"] = payload.get(
+            "item_count", len((payload.get("reply_markup") or {}).get("inline_keyboard", []))
+        )
     except TelegramRejectedRequest:
         repository.connection.execute(
             "UPDATE notification_outbox SET status='pending' WHERE notification_key=?",
@@ -235,6 +488,9 @@ def daily_cycle(
     score_retry_failed=False,
     day=None,
     email_budget_seconds=120,
+    enrichment_client=None,
+    enrichment_limit=5,
+    score_model=None,
 ):
     def progress(message):
         if on_progress is not None:
@@ -280,6 +536,7 @@ def daily_cycle(
         run_id = repository.start_run(10, False, telegram is None)
         report["run_id"] = run_id
         rows = []
+        new_source_keys = set()
         try:
             if import_workbook:
                 try:
@@ -315,6 +572,7 @@ def daily_cycle(
                                 for job in parse_email(message)
                             ]
                             result = repository.upsert_detailed(jobs)
+                            new_source_keys.update(result.inserted_keys)
                             for job in jobs:
                                 repository.record_observation(job)
                             for key in ("inserted", "changed", "unchanged"):
@@ -355,6 +613,7 @@ def daily_cycle(
                 try:
                     batch = collect(search.url)
                     result = ingest_observations(repository, batch.jobs)
+                    new_source_keys.update(result.inserted_keys)
                     for key in ("inserted", "changed", "unchanged"):
                         report[key] += getattr(result, key)
                     report["sources"].append(
@@ -401,13 +660,49 @@ def daily_cycle(
                 from job_radar.candidate import candidate_profile_hash
 
                 profile_hash = candidate_profile_hash(profile)
-            model = provider.model if provider else None
-            rows = review_rows(repository, profile_hash, model)
-            score_keys = {
+            model = provider.model if provider else score_model
+            rows = review_rows(repository, profile_hash, model, profile)
+            new_keys = {
                 row["semantic_key"]
                 for row in rows
-                if _reviewable(row) and row["screening_status"] == "eligible"
+                if new_source_keys.intersection(row["source_keys"])
             }
+            if enrichment_client is not None and enrichment_limit:
+                try:
+                    progress(
+                        f"Enriching eligible vacancies within {enrichment_limit} detail requests..."
+                    )
+                    report["enrichment"] = _enrich_review(
+                        repository,
+                        rows,
+                        enrichment_client,
+                        enrichment_limit,
+                        profile,
+                        model,
+                        new_keys,
+                        run_id,
+                    )
+                    incomplete = sum(
+                        report["enrichment"].get(key, 0)
+                        for key in ("snippet_only", "failed", "blocked", "empty")
+                    )
+                    report["enrichment"]["status"] = "partial" if incomplete else "success"
+                    repository.record_run_stage(
+                        run_id,
+                        "enrichment",
+                        status=report["enrichment"]["status"],
+                        item_count=report["enrichment"]["requests"],
+                        error=f"{incomplete} incomplete JDs; provisional fallback"
+                        if incomplete
+                        else "",
+                    )
+                except Exception as error:
+                    report["errors"].append(f"Enrichment: {error_label(error)}")
+                    repository.record_run_stage(
+                        run_id, "enrichment", status="failed", error=error_label(error)
+                    )
+                rows = review_rows(repository, profile_hash, model, profile)
+            score_keys = {row["semantic_key"] for row in rows if _scoreable(row)}
             report["eligible_for_scoring"] = len(score_keys)
             if score_limit:
                 if provider is None:
@@ -424,13 +719,15 @@ def daily_cycle(
                             repository,
                             provider,
                             profile or {},
-                            only="eligible",
+                            only=None,
                             limit=score_limit,
                             retry_failed=score_retry_failed,
                             semantic_keys=score_keys,
                             retry_after_seconds=86400,
                             input_cost_per_million=input_cost_per_million,
                             output_cost_per_million=output_cost_per_million,
+                            new_semantic_keys=new_keys,
+                            fairness_turn=run_id,
                         )
                         report["estimated_cost_usd"] = result.estimated_cost_usd
                         report["cost_may_exclude_failed_requests"] = result.failed > 0
@@ -452,7 +749,7 @@ def daily_cycle(
                     item_count=report["scoring"]["scored"],
                     error="; ".join(e for e in report["errors"] if e.startswith("Scoring")),
                 )
-            rows = review_rows(repository, profile_hash, model)
+            rows = review_rows(repository, profile_hash, model, profile)
             report["eligible_score_states"] = {
                 state: sum(
                     row["semantic_key"] in score_keys and row.get("score_status") == state
@@ -474,35 +771,36 @@ def daily_cycle(
             report["errors"].append(f"Daily cycle: {error_label(error)}")
         eligible = [row for row in rows if _reviewable(row)]
         report["review_count"] = len(eligible)
-        # With scoring enabled, failed/unscored/skip roles remain in Excel, not alerts.
-        shortlisted = [
-            row
-            for row in eligible
-            if not score_limit
-            or (
-                row.get("score_status") == "success"
-                and (
-                    row.get("recommendation") in {"strong_apply", "apply"}
-                    or (
-                        row.get("recommendation") == "review"
-                        and (row.get("match_score") or 0) >= 50
-                    )
-                )
-            )
-        ]
-        shortlisted.sort(
-            key=lambda row: (
-                row["hours_status"] == "unknown",
-                -(row.get("match_score") or 0),
-                row["dedupe_key"],
-            )
-        )
+        tier_a, tier_b = review_tiers(rows)
+        shortlisted = tier_a + tier_b
+        report["review_tiers"] = {"ai_recommended": len(tier_a), "awaiting_ai": len(tier_b)}
         report["shortlisted"] = len(shortlisted)
+        report["top_applications"] = [
+            {
+                key: row.get(key)
+                for key in (
+                    "dedupe_key",
+                    "title",
+                    "company",
+                    "url",
+                    "review_tier",
+                    "technical_match_score",
+                    "application_priority",
+                    "hours_fit",
+                    "seniority_fit",
+                    "location_fit",
+                    "eligibility_summary",
+                    "evidence_quality",
+                )
+            }
+            for row in sorted(shortlisted, key=application_sort_key)[:5]
+        ]
         try:
             _deliver(repository, report, shortlisted, telegram, chat_id, day, output)
         except Exception as error:
             report["errors"].append(f"Digest: {error_label(error)}")
             report["telegram"] = "failed" if telegram else "disabled"
+        report["funnel"] = _funnel(repository, rows, tier_a, tier_b, chat_id, report)
         repository.record_run_stage(
             run_id,
             "telegram",

@@ -132,14 +132,17 @@ def _daily(args, settings):
         return fetch_messages(service, "newer_than:10d (from:jobalerts-noreply@linkedin.com OR from:donotreply@jobalert.indeed.com)", limit=args.email_limit)
     provider = None
     profile = None
-    if args.score_limit:
-        from job_radar.candidate import load_candidate_profile
-        from job_radar.ai import OpenAIProvider
+    from job_radar.candidate import load_candidate_profile
+    try:
+        profile = load_candidate_profile(settings.candidate_profile_path)
+    except Exception as error:
+        initial_errors.append(f"Scoring profile: {error_label(error)}")
+    if args.score_limit and profile is not None:
         try:
-            profile = load_candidate_profile(settings.candidate_profile_path)
             if not any(profile.get(key) for key in ("experience", "projects", "education")):
                 raise ValueError("Fill the private candidate profile before scoring")
             if settings.openai_api_key:
+                from job_radar.ai import OpenAIProvider
                 provider = OpenAIProvider(
                     settings.openai_api_key, settings.openai_model,
                     timeout_seconds=settings.openai_timeout_seconds,
@@ -152,7 +155,7 @@ def _daily(args, settings):
     if args.telegram and (not settings.telegram_bot_token or not settings.telegram_chat_id):
         initial_errors.append("Telegram configuration missing; run telegram-connect")
     result = daily_cycle(
-        Path(args.database), searches, collector,
+        Path(args.database) if args.database else settings.database_path, searches, collector,
         fetch_emails=None if args.no_email else email_fetcher,
         provider=provider, profile=profile, score_limit=args.score_limit,
         telegram=TelegramApiClient(settings.telegram_bot_token)
@@ -164,15 +167,20 @@ def _daily(args, settings):
         on_progress=lambda message: print(message, flush=True),
         initial_errors=initial_errors,
         score_retry_failed=args.score_retry_failed,
+        score_model=settings.openai_model,
+        enrichment_client=HttpClient(settings.enrichment_timeout_seconds,
+                                     settings.enrichment_rate_limit_seconds,
+                                     settings.enrichment_retries),
+        enrichment_limit=args.enrich_limit,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
     if result["status"] != "success":
         raise SystemExit(1)
 
 
-def _application_set(args):
+def _application_set(args, settings=None):
     from job_radar.runner import RunLock
-    path = Path(args.database)
+    path = Path(args.database) if args.database else (settings or Settings.from_env()).database_path
     with RunLock(path.with_suffix(path.suffix + ".run.lock")), JobRepository(path) as repository:
         result = repository.set_application(args.key, args.state, args.request_id, note=args.note)
     print(f"Application status: {result}")
@@ -585,30 +593,14 @@ def _telegram_send(args: argparse.Namespace, settings: Settings) -> None:
     )
 
 
-def _telegram_poll(settings: Settings) -> None:
-    from job_radar.candidate import candidate_profile_hash, load_candidate_profile
-    from job_radar.telegram import TelegramApiClient, poll_callbacks
+def _telegram_poll(settings: Settings, args) -> None:
+    import asyncio
+    from job_radar.control.runtime import poll
 
-    if not settings.telegram_bot_token or not settings.telegram_chat_id:
-        raise RuntimeError(
-            "TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are required"
-        )
-    repository = JobRepository(settings.database_path)
-    profile_hash = candidate_profile_hash(
-        load_candidate_profile(settings.candidate_profile_path)
-    )
     try:
-        poll_callbacks(
-            repository,
-            TelegramApiClient(settings.telegram_bot_token),
-            settings.telegram_chat_id,
-            profile_hash,
-            settings.openai_model,
-        )
+        asyncio.run(poll(settings, args))
     except KeyboardInterrupt:
         print("Telegram polling stopped")
-    finally:
-        repository.close()
 
 
 def _screen(settings: Settings) -> None:
@@ -708,10 +700,12 @@ def _run(args: argparse.Namespace, settings: Settings) -> None:
 
 
 def parser() -> argparse.ArgumentParser:
+    from job_radar import __version__
     root = argparse.ArgumentParser(
         prog="job-radar",
         description="Incremental email-first vacancy pipeline and application queue.",
     )
+    root.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     commands = root.add_subparsers(dest="command", required=True)
 
     scrape = commands.add_parser("scrape", help="Probe one public search page into JSON")
@@ -733,14 +727,16 @@ def parser() -> argparse.ArgumentParser:
     for name in ("telegram-connect", "telegram-check"):
         connection = commands.add_parser(name)
         connection.add_argument("--test-message", action="store_true")
-    daily = commands.add_parser("daily", help="Collect saved searches and optional email into a test DB")
+    daily = commands.add_parser("daily", help="Collect saved searches and optional email into SQLite")
     daily.add_argument("--searches", default="data/searches.yaml")
-    daily.add_argument("--database", default="data/mvp-v1-test.db")
+    daily.add_argument("--database", help="Override JOB_RADAR_DB (default: data/jobs.db)")
     daily.add_argument("--output", default="outputs/daily")
     daily.add_argument("--transport", choices=("playwright", "http"), default="playwright")
     daily.add_argument("--pages", type=int, choices=range(1,11), default=2, metavar="1..10")
     daily.add_argument("--limit", type=int, choices=range(1,501), default=25, metavar="1..500")
-    daily.add_argument("--details", type=int, choices=range(26), default=5, metavar="0..25")
+    daily.add_argument("--details", type=int, choices=range(26), default=0, metavar="0..25")
+    daily.add_argument("--enrich-limit", type=int, choices=range(26), default=5, metavar="0..25",
+                       help="Global eligible JD request budget before scoring")
     daily.add_argument("--email-limit", type=int, choices=range(1,1001), default=100, metavar="1..1000")
     daily.add_argument("--no-email", action="store_true")
     daily.add_argument("--score-limit", type=int, choices=range(26), default=0, metavar="0..25")
@@ -753,7 +749,7 @@ def parser() -> argparse.ArgumentParser:
     application.add_argument("state")
     application.add_argument("--request-id", required=True)
     application.add_argument("--note", default="")
-    application.add_argument("--database", default="data/mvp-v1-test.db")
+    application.add_argument("--database", help="Override JOB_RADAR_DB (default: data/jobs.db)")
 
     backfill = commands.add_parser("backfill")
     backfill.add_argument("--days", type=int, default=10)
@@ -802,7 +798,17 @@ def parser() -> argparse.ArgumentParser:
     telegram_send_scope.add_argument("--limit", type=int, default=3)
     telegram_send_scope.add_argument("--all", action="store_true")
     telegram_send.add_argument("--force", action="store_true")
-    commands.add_parser("telegram-poll", help="Poll Telegram callback actions")
+    control = commands.add_parser("telegram-poll", help="Owner-only interactive Telegram Control Center")
+    import os
+    control.add_argument("--owner-id", type=int, default=os.getenv("TELEGRAM_OWNER_ID"))
+    control.add_argument("--database", help="Explicit isolated or production database")
+    control.add_argument("--searches", default="data/searches.yaml")
+    control.add_argument("--output", default="outputs/telegram")
+    control.add_argument("--cooldown", type=int, default=300)
+    control.add_argument("--search-timeout", type=int, default=600)
+    control.add_argument("--search-limit", type=int, default=15)
+    control.add_argument("--max-pages", type=int, default=2)
+    control.add_argument("--transport", choices=("playwright", "http"), default="playwright")
     commands.add_parser("screen")
     commands.add_parser("stats")
     run = commands.add_parser(
@@ -828,7 +834,7 @@ def main() -> None:
     elif args.command == "daily":
         _daily(args, settings)
     elif args.command == "application-set":
-        _application_set(args)
+        _application_set(args, settings)
     elif args.command == "scrape":
         _scrape(args)
     elif args.command == "backfill":
@@ -852,7 +858,7 @@ def main() -> None:
     elif args.command == "telegram-send":
         _telegram_send(args, settings)
     elif args.command == "telegram-poll":
-        _telegram_poll(settings)
+        _telegram_poll(settings, args)
     elif args.command == "screen":
         _screen(settings)
     elif args.command == "stats":

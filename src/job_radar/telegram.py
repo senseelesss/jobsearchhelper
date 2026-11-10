@@ -89,7 +89,7 @@ class TelegramApiClient:
     ) -> list[dict[str, Any]]:
         payload: dict[str, Any] = {
             "timeout": timeout,
-            "allowed_updates": ["callback_query"],
+            "allowed_updates": ["callback_query", "message"],
         }
         if offset is not None:
             payload["offset"] = offset
@@ -113,9 +113,14 @@ class TelegramApiClient:
                 result = json.loads(response.read().decode())
         except urllib.error.HTTPError as error:
             kind = TelegramRejectedRequest if 400 <= error.code < 500 else RuntimeError
-            raise kind(
-                f"Telegram API HTTP {error.code} during {method}"
-            ) from None
+            failure = kind(f"Telegram API HTTP {error.code} during {method}")
+            if method == "editMessageText" and error.code == 400:
+                try:
+                    description = json.loads(error.read(4096)).get("description", "")
+                    failure.not_modified = "message is not modified" in description.lower()
+                except (ValueError, OSError):
+                    pass
+            raise failure from None
         except (urllib.error.URLError, TimeoutError, OSError) as error:
             raise RuntimeError(
                 f"Telegram API transport failure during {method}: "
@@ -139,6 +144,10 @@ def telegram_candidates(
     model: str | None = None,
     semantic_keys: set[str] | None = None,
 ) -> list[dict[str, Any]]:
+    from job_radar.eligibility import assess_application
+    from job_radar.exporting import semantic_groups
+
+    canonical = {group[0]["semantic_key"]: group[0] for group in semantic_groups(repository.all())}
     rows = []
     for row in application_queue(
         repository,
@@ -152,6 +161,18 @@ def telegram_candidates(
         score = row["match_score"]
         if row["vacancy_state"] != "active":
             continue
+        raw = canonical.get(row["semantic_key"])
+        if raw is not None:
+            assessment = assess_application(
+                {
+                    **raw,
+                    **row,
+                    "application_state": repository.application_for(raw["dedupe_key"])["state"],
+                }
+            )
+            if assessment["application_eligibility"] == "ineligible":
+                continue
+            row.update(assessment)
         if row["score_status"] != "success":
             continue
         if row["draft_status"] != "ready":
@@ -259,6 +280,10 @@ def send_cards(
     model: str | None = None,
     semantic_keys: set[str] | None = None,
 ) -> DeliverySummary:
+    from job_radar.control.notifications import preferences
+    ui_preferences = preferences(repository)
+    if ui_preferences is not None and not ui_preferences.get("notifications", True):
+        return DeliverySummary(0, 0)
     rows = telegram_candidates(
         repository,
         profile_hash,
@@ -278,11 +303,13 @@ def send_cards(
             skipped_delivered += 1
             continue
         try:
-            message_id = transport.send_message(
-                chat_id,
-                render_card(row),
-                card_keyboard(row),
-            )
+            if ui_preferences is not None:
+                from job_radar.control.notifications import legacy_card, legacy_keyboard
+                language = ui_preferences.get("language", "uk")
+                text, keyboard = legacy_card(row, language), legacy_keyboard(row, language)
+            else:
+                text, keyboard = render_card(row), card_keyboard(row)
+            message_id = transport.send_message(chat_id, text, keyboard)
             repository.save_telegram_delivery(
                 row["semantic_key"], message_id, _now()
             )
@@ -292,6 +319,20 @@ def send_cards(
     return DeliverySummary(sent, skipped_delivered, failed)
 
 
+def _localized_card(row, status, language):
+    if language is None:
+        return render_card(row, status)
+    from job_radar.control.notifications import legacy_card
+    return legacy_card(row, language, status)
+
+
+def _localized_keyboard(row, language):
+    if language is None:
+        return card_keyboard(row)
+    from job_radar.control.notifications import legacy_keyboard
+    return legacy_keyboard(row, language)
+
+
 def process_callback(
     repository: JobRepository,
     transport: TelegramTransport,
@@ -299,26 +340,37 @@ def process_callback(
     callback: dict[str, Any],
     profile_hash: str | None = None,
     model: str | None = None,
+    language: str | None = None,
 ) -> None:
+    def answer_callback(query_id, text=""):
+        if language is not None:
+            from job_radar.control.catalog import tr
+            key = {"Ignored": "denied", "Unknown action": "expired",
+                   "Vacancy unavailable": "unavailable", "Applied": "applied",
+                   "Skipped": "skipped", "Cover letter unavailable": "no_draft",
+                   "Cover letter sent": "draft_sent"}.get(text, "error")
+            text = tr(language, key)
+        transport.answer_callback(query_id, text)
+
     callback_id = str(callback.get("id", ""))
     data = str(callback.get("data", ""))
     message = callback.get("message") or {}
     callback_chat_id = str((message.get("chat") or {}).get("id", ""))
     if callback_chat_id != str(chat_id):
-        transport.answer_callback(callback_id, "Ignored")
+        answer_callback(callback_id, "Ignored")
         return
     direct = re.fullmatch(r"(applyjob|skipjob):((?:linkedin|karriere|indeed):[A-Za-z0-9_-]+)", data)
     if direct:
         state = "applied" if direct.group(1) == "applyjob" else "skipped"
         try:
             repository.set_application(direct.group(2), state, f"telegram:{callback_id}", actor="telegram")
-            transport.answer_callback(callback_id, "Applied" if state == "applied" else "Skipped")
+            answer_callback(callback_id, "Applied" if state == "applied" else "Skipped")
         except ValueError:
-            transport.answer_callback(callback_id, "Vacancy unavailable")
+            answer_callback(callback_id, "Vacancy unavailable")
         return
     match = re.fullmatch(r"(cover|applied|skipped):(semantic-[a-f0-9]+)", data)
     if not match:
-        transport.answer_callback(callback_id, "Unknown action")
+        answer_callback(callback_id, "Unknown action")
         return
     action, semantic_key = match.groups()
     row = next(
@@ -336,19 +388,19 @@ def process_callback(
     )
     delivery = repository.telegram_delivery(semantic_key)
     if not row or not delivery:
-        transport.answer_callback(callback_id, "Vacancy unavailable")
+        answer_callback(callback_id, "Vacancy unavailable")
         return
 
     if action == "cover":
         cover_letter = str(row["cover_letter"]).strip()
         if not cover_letter:
-            transport.answer_callback(callback_id, "Cover letter unavailable")
+            answer_callback(callback_id, "Cover letter unavailable")
             return
         transport.send_message(
             chat_id,
             _truncate(cover_letter, TELEGRAM_MESSAGE_LIMIT),
         )
-        transport.answer_callback(callback_id, "Cover letter sent")
+        answer_callback(callback_id, "Cover letter sent")
         return
 
     updated = repository.update_telegram_status(
@@ -362,11 +414,11 @@ def process_callback(
     transport.edit_message(
         chat_id,
         int(delivery["message_id"]),
-        render_card(row, action),
-        card_keyboard(row),
+        _localized_card(row, action, language),
+        _localized_keyboard(row, language),
     )
     label = "Applied" if action == "applied" else "Skipped"
-    transport.answer_callback(
+    answer_callback(
         callback_id,
         f"{label}" if updated else "Vacancy unavailable",
     )

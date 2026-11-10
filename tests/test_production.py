@@ -217,7 +217,7 @@ def test_applied_and_skipped_survive_connections_and_are_not_scored_or_alerted(t
         ("Python developer", "unknown"),
         ("Python Teilzeit oder Vollzeit", "part_time_available"),
         ("Python 20 Stunden pro Woche", "part_time_available"),
-        ("Python 20–40 Wochenstunden", "unknown"),
+        ("Python 20–40 Wochenstunden", "part_time_available"),
         ("Python Vollzeit", "full_time_only"),
     ],
 )

@@ -42,7 +42,8 @@ sudo useradd --system --create-home --home-dir /var/lib/job-radar --shell /usr/s
 sudo install -d -o jobradar -g jobradar -m 0700 /var/lib/job-radar/secrets /var/cache/job-radar
 sudo git clone https://github.com/senseelesss/jobsearchhelper.git /opt/job-radar
 sudo python3 -m venv /opt/job-radar/.venv
-sudo /opt/job-radar/.venv/bin/pip install '/opt/job-radar[dev,scraping]'
+sudo /opt/job-radar/.venv/bin/pip install --require-hashes -r /opt/job-radar/requirements.lock
+sudo /opt/job-radar/.venv/bin/pip install --no-deps --no-build-isolation '/opt/job-radar[dev,scraping]'
 sudo /opt/job-radar/.venv/bin/python -m playwright install-deps chromium
 sudo -u jobradar env HOME=/var/lib/job-radar PLAYWRIGHT_BROWSERS_PATH=/var/cache/job-radar/browsers \
   /opt/job-radar/.venv/bin/python -m playwright install chromium
@@ -89,10 +90,14 @@ prompt/schema overhead at the listed rates; ordinary runs should use less.
 Actual estimates use returned tokens. Failed/timed-out requests can be billed
 without returning usage; reported costs are not an invoice or a hard ceiling.
 
-For the default two searches, Gmail has a 120s between-message budget, each search
-has a 120s between-request budget, and requests have their own timeouts. These
+For the prepared six one-page searches, Gmail has a 120s between-message budget, each search
+has a 120s between-request budget, and requests have their own timeouts.
+Eligible enrichment adds a global budget of five GET operations/120s; direct
+unscreened detail fetching defaults to zero. See MACOS_STAGING.md for current
+two-tier review and scoring fairness; provider unavailability retains UNSCORED
+review candidates in Telegram instead of hiding them. These
 budgets may overrun by the current request; the service has a final 25-minute
-limit. Keep the default budgets initially. Raising source count, score limits,
+limit. Keep the default budgets initially. Raising source count, enrichment/score limits,
 SDK retries or timeouts requires reviewing the whole-run timeout.
 
 ### Gmail reauthorization if a token is revoked

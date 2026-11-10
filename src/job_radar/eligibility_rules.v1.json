@@ -1,0 +1,105 @@
+{
+  "version": "application-eligibility-v1",
+  "target_hours": [
+    20,
+    25
+  ],
+  "acceptable_hours": [
+    15,
+    30
+  ],
+  "excluded_required_years": 4,
+  "possible_required_years": 3,
+  "strong_technologies": [
+    "python",
+    "typescript",
+    "javascript",
+    "node.js",
+    "rest api",
+    "sql",
+    "postgresql",
+    "automation",
+    "automatisierung",
+    "integration",
+    "llm",
+    "data engineering",
+    "qa automation"
+  ],
+  "secondary_technologies": [
+    "java",
+    "c#",
+    "docker",
+    "cloud integration",
+    "etl",
+    "pytest",
+    "playwright",
+    "selenium",
+    "c++"
+  ],
+  "other_technologies": [
+    "cobol",
+    "abap",
+    "fortran",
+    "mainframe",
+    "embedded c",
+    "vhdl",
+    "verilog",
+    "rust",
+    "ruby",
+    "php",
+    "golang"
+  ],
+  "priority_thresholds": {
+    "HIGH": 75,
+    "MEDIUM": 45
+  },
+  "hours_points": {
+    "confirmed_target": 30,
+    "acceptable": 24,
+    "flexible_part_time": 22,
+    "unknown": 8,
+    "confirmed_mismatch": 0
+  },
+  "seniority_points": {
+    "student": 25,
+    "junior": 23,
+    "internship": 20,
+    "compatible": 18,
+    "unspecified": 12,
+    "uncertain": 8,
+    "possible": 5,
+    "mismatch": 0
+  },
+  "role_points": {
+    "strong": 25,
+    "relevant": 20,
+    "secondary": 15,
+    "adjacent": 8,
+    "unknown": 3,
+    "other_stack": 3,
+    "unrelated": 0
+  },
+  "location_points": {
+    "vienna": 15,
+    "austria_remote": 10,
+    "eu_remote_verified": 8,
+    "eu_remote_unverified": 2,
+    "remote_unverified": 2,
+    "unknown": 2,
+    "mismatch": 0,
+    "authorization_unverified": 2
+  },
+  "freshness_days": 7,
+  "notification_aging_days": 3,
+  "other_domains": [
+    "5g",
+    "wireless",
+    "rf",
+    "embedded",
+    "electrical",
+    "mechanical",
+    "plc",
+    "sps"
+  ],
+  "weak_technical_threshold": 50
+}

@@ -95,9 +95,18 @@ def extract_json_ld_description(document: str) -> str:
             types = candidate.get("@type")
             type_values = types if isinstance(types, list) else [types]
             if "JobPosting" in type_values and candidate.get("description"):
-                return normalize_description(
+                description = normalize_description(
                     re.sub(r"<[^>]+>", "\n", str(candidate["description"]))
                 )
+                # Preserve explicit source metadata as labelled evidence in the JD,
+                # using the existing description storage rather than new DB columns.
+                for field, label in (("employmentType", "Employment type"), ("workHours", "Work hours")):
+                    value = candidate.get(field)
+                    if isinstance(value, list):
+                        value = ' / '.join(item for item in value if isinstance(item,str))
+                    if isinstance(value,str) and value.strip():
+                        description += f"\n{label}: {value.strip()[:500]}"
+                return description
     return ""
 
 
