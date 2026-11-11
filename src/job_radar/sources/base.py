@@ -60,6 +60,7 @@ class CollectionBatch:
     pages_fetched: int = 0
     stop_reason: str = ""
     metrics: dict[str, int | float] = field(default_factory=dict)
+    retry_after_seconds: float | None = None
 
     def to_dict(self) -> dict[str, object]:
         return {

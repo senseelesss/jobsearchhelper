@@ -40,6 +40,15 @@ CREATE TABLE IF NOT EXISTS jobs (
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+CREATE TABLE IF NOT EXISTS source_cooldowns (
+    source TEXT PRIMARY KEY, next_attempt_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS ai_budget_reservations (
+    id INTEGER PRIMARY KEY, day TEXT NOT NULL, run_key TEXT NOT NULL,
+    reserved_usd REAL NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_ai_budget_day ON ai_budget_reservations(day);
+CREATE INDEX IF NOT EXISTS idx_ai_budget_run ON ai_budget_reservations(run_key);
 CREATE TABLE IF NOT EXISTS enrichment_attempts (
     url TEXT PRIMARY KEY,
     attempts INTEGER NOT NULL DEFAULT 0,
@@ -304,8 +313,13 @@ class JobRepository:
         self.connection.execute("PRAGMA busy_timeout = 5000")
         self.connection.execute("PRAGMA foreign_keys = ON")
         self.connection.execute("PRAGMA journal_mode = WAL")
-        self.connection.executescript(SCHEMA)
-        self._migrate()
+        try:
+            # Serialize schema inspection and additive migration across processes.
+            self.connection.executescript("BEGIN IMMEDIATE;\n" + SCHEMA)
+            self._migrate()
+        except BaseException:
+            self.connection.close()
+            raise
 
     def __enter__(self) -> "JobRepository":
         return self
@@ -334,22 +348,14 @@ class JobRepository:
                 self.connection.execute(
                     f"ALTER TABLE telegram_deliveries ADD COLUMN {name} {definition}"
                 )
-        self.connection.execute(
-            """
-            UPDATE telegram_deliveries
-            SET delivery_status = CASE
-                    WHEN status IN ('delivered', 'applied', 'skipped', 'failed')
-                        THEN status
-                    ELSE delivery_status
-                END,
-                status = CASE
-                    WHEN status = 'failed' THEN 'failed'
-                    WHEN delivery_status IN ('delivered', 'applied', 'skipped')
-                        THEN delivery_status
-                    ELSE status
-                END
-            """
-        )
+        # Copy legacy status once into a newly added column. Re-running a bidirectional
+        # update on open could erase an Applied value when the old status was Delivered.
+        if "delivery_status" not in telegram_columns and "status" in telegram_columns:
+            self.connection.execute("UPDATE telegram_deliveries SET delivery_status=status "
+                                    "WHERE status IN ('delivered','applied','skipped','failed')")
+        elif "status" not in telegram_columns and "delivery_status" in telegram_columns:
+            self.connection.execute("UPDATE telegram_deliveries SET status=delivery_status "
+                                    "WHERE delivery_status IN ('delivered','applied','skipped','failed')")
         self.connection.execute(
             """
             UPDATE jobs
@@ -830,6 +836,16 @@ class JobRepository:
         for result in results:
             result["rejection_reasons"] = json.loads(result["rejection_reasons"])
         return results
+
+    def source_cooldown(self, source: str) -> str | None:
+        row = self.connection.execute("SELECT next_attempt_at FROM source_cooldowns WHERE source=?", (source,)).fetchone()
+        return row[0] if row and row[0] > _now() else None
+
+    def defer_source(self, source: str, seconds: float) -> None:
+        from datetime import datetime, timedelta, timezone
+        stamp = (datetime.now(timezone.utc) + timedelta(seconds=seconds)).isoformat()
+        with self.connection:
+            self.connection.execute("INSERT OR REPLACE INTO source_cooldowns VALUES (?,?)", (source, stamp))
 
     def enrichment_attempt(self, url: str) -> dict[str, Any] | None:
         row = self.connection.execute(

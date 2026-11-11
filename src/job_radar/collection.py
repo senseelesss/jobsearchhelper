@@ -45,7 +45,7 @@ def _http_pages(client, search, max_pages):
 
 
 def collect_search(
-    client, url: str, *, limit=25, max_pages=1, details=0, max_seconds=120
+    client, url: str, *, limit=25, max_pages=1, details=0, max_seconds=120, include=None
 ) -> CollectionBatch:
     search = validate_search_url(url)
     if not 1 <= limit <= 500 or not 1 <= max_pages <= 10 or not 0 <= details <= 25:
@@ -60,14 +60,18 @@ def collect_search(
         else _http_pages(client, search, max_pages)
     )
     jobs = {}
+    seen = set()
+    filtered = 0
     latest = CollectionBatch("failed", search.url)
     fetched = invalid = cards = 0
     stop = "page_limit"
     errors = []
+    retry_after_seconds = None
     complete = False
     try:
         for response in pages:
             fetched += 1
+            retry_after_seconds = response.retry_after_seconds
             final = urlsplit(response.final_url)
             allowed = {
                 "karriere": {"www.karriere.at", "karriere.at"},
@@ -96,9 +100,13 @@ def collect_search(
                 break
             added = 0
             for job in latest.jobs:
-                if job.dedupe_key not in jobs:
-                    jobs[job.dedupe_key] = replace(job, search_url=search.url)
+                if job.dedupe_key not in seen:
+                    seen.add(job.dedupe_key)
                     added += 1
+                    if include is not None and not include(job):
+                        filtered += 1
+                        continue
+                    jobs[job.dedupe_key] = replace(job, search_url=search.url)
             if latest.status == "partial":
                 errors.append(f"Page {fetched}: invalid cards")
             if not added and latest.status != "empty":
@@ -108,7 +116,7 @@ def collect_search(
             if latest.status == "empty" or (
                 latest.reported_total is not None
                 and not latest.reported_total_is_lower_bound
-                and len(jobs) >= latest.reported_total
+                and len(seen) >= latest.reported_total
             ):
                 complete, stop = True, "end_of_results"
                 break
@@ -155,8 +163,10 @@ def collect_search(
                 detail_hosts.add("at.linkedin.com")
             if final.scheme != "https" or final.hostname not in detail_hosts or not same_path:
                 raise ValueError("Unexpected detail redirect")
+            from job_radar.enrichment_adapters.common import select_job_document
+            document = select_job_document(response.body, job.title, job.url)
             result = (parse_posting(response.body, response.status_code, endpoint[0]) if endpoint
-                      else adapter_for(job.source).parse(response.body, response.status_code))
+                      else adapter_for(job.source).parse(document, response.status_code))
             selected[index] = replace(
                 job,
                 description=result.description,
@@ -178,6 +188,8 @@ def collect_search(
         )
     else:
         status = "empty" if latest.status == "empty" and not errors else latest.status
+        if filtered and not errors and latest.status in {"success", "empty"}:
+            status, stop = "empty", "filtered_no_matches"
         if status in {"success", "partial"} or errors and status == "empty":
             status = "failed"
     transport_after = getattr(client, "metrics", {})
@@ -187,7 +199,8 @@ def collect_search(
         metrics["requests"] = fetched + detail_requests + int(stop == "transport_failure")
     metrics["latency_ms"] = round((time.monotonic() - started) * 1000, 2)
     metrics["jobs_discovered"] = len(selected)
-    metrics["unique_native_jobs"] = len(jobs)
+    metrics["unique_native_jobs"] = len(seen)
+    metrics["filtered_out"] = filtered
     for kind in ("full", "partial", "missing"):
         metrics[kind + "_descriptions"] = sum(
             ("full" if j.fetch_status == "success" and j.description else "partial" if j.snippet or j.description else "missing") == kind
@@ -196,6 +209,7 @@ def collect_search(
     return replace(
         latest,
         metrics=metrics,
+        retry_after_seconds=retry_after_seconds,
         status=status,
         jobs=tuple(selected),
         pages_fetched=fetched,

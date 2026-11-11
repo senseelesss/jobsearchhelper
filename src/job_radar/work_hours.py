@@ -64,7 +64,9 @@ def assess_hours(row, policy=None):
             if WEEKLY.search(raw) or FULL.search(raw) or PART.search(raw):
                 add(source + ":reference_only", raw)
             continue
-        full_only_here = bool(FULL_ONLY.search(raw))
+        full_only_here = bool(FULL_ONLY.search(raw)) or bool(re.search(
+            r"\b(?:auslastung|beschäftigungsausmaß|workload|capacity)\s*:\s*100\s*%(?:[.!;]|$)", raw, re.I
+        ))
         flexible_here = bool(FLEXIBLE.search(raw)) or (
             bool(PART.search(raw) and FULL.search(raw))
             and (source == "metadata" or bool(re.search(r"employment\s*type", raw, re.I)))

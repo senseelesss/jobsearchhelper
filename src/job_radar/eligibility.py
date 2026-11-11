@@ -259,6 +259,16 @@ def assess_role(row, profile=None, policy=None):
     )
     if excluded and not technical_marketing:
         return {"role_fit": "unrelated", "role_evidence": [excluded[0]], "technical_terms": []}
+    # Occupational context wins over incidental technology in non-IT adverts.
+    clinical = re.search(
+        r"\b(?:dental[ -]assistant|dent(?:al|ist)|zahn(?:arzt|ärzt|arztassist|ärztlich)\w*|zahnarztassistenz|ordination(?:sassisten\w*)?|pflege(?:assist\w*|fach\w*)|rezeptionist\w*|office assistant|büroassist\w*|medical assistant|medizinische assist\w*)\b",
+        title, re.I,
+    )
+    technical_title = re.search(
+        r"\b(?:software|developer|entwickler\w*|engineer|informatik\w*|IT|data|QA|automation|automatisierung|Odoo)\b", title, re.I,
+    )
+    if clinical and not technical_title:
+        return {"role_fit": "unrelated", "role_evidence": [clinical[0]], "technical_terms": []}
     strong = _matches(text, policy["strong_technologies"])
     secondary = _matches(text, policy["secondary_technologies"])
     other = _matches(text, policy["other_technologies"])
@@ -270,6 +280,11 @@ def assess_role(row, profile=None, policy=None):
             re.I,
         )
     )
+    development = development or bool(re.search(
+        r"\b(?:AI(?:\s*/\s*ML)?|ML|machine learning|DevOps|data platform)\s+(?:engineer|developer|entwickler\w*)\b",
+        title, re.I,
+    )) or bool(re.search(r"\b(?:test|quality assurance) engineer\b", title, re.I)
+               and re.search(r"\b(?:ERP|software|API|Selenium|SQL|automation|automatisierung)\b", text, re.I))
     adjacent = bool(
         re.search(
             r"\b(?:support|technical operations|agile delivery|it analyst|business analyst|application manager|app manager)\b",

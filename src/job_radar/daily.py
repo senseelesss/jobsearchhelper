@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import re
 import time
 from dataclasses import replace
 from datetime import datetime, timezone
@@ -117,6 +118,7 @@ def _reviewable(row):
         and row["screening_status"] in {"eligible", "review"}
         and row["application_state"] in {"not_applied", "saved"}
         and row.get("application_eligibility") != "ineligible"
+        and row.get("role_fit") in {"strong", "secondary", "relevant", "adjacent"}
     )
 
 
@@ -169,7 +171,15 @@ def _enrich_review(repository, rows, client, limit, profile, model, new_keys, tu
     now = datetime.now(timezone.utc)
     selected = []
     for row in rows:
-        if not _scoreable(row):
+        possible_remote = (
+            not has_full_description(row) and not is_expired(row)
+            and row["application_state"] in {"not_applied", "saved"}
+            and row.get("role_fit") in {"strong", "secondary", "relevant", "adjacent"}
+            and bool(re.search(r"\b(?:Graz|Linz|Salzburg|Innsbruck|Klagenfurt|Austria|Österreich)\b", row["location"], re.I))
+            and {reason["code"] for reason in row.get("eligibility_reasons", []) if reason["hard"]}
+            <= {"location_mismatch", "screening_rejected"}
+        )
+        if not _scoreable(row) and not possible_remote:
             continue
         ttl = freshness_hours if has_full_description(row) else retry_hours
         try:
@@ -182,9 +192,14 @@ def _enrich_review(repository, rows, client, limit, profile, model, new_keys, tu
         selected.append(row)
     # Missing descriptions first, then oldest attempt. Score caches never enter this plan.
     selected.sort(key=lambda row: (
-        has_full_description(row), row["fetched_at"] or "", row["first_seen_at"],
+        has_full_description(row), row["semantic_key"] not in new_keys,
+        row["fetched_at"] or "", row["first_seen_at"],
         row["semantic_key"],
     ))
+    stale = next((row for row in selected if has_full_description(row)), None)
+    if stale is not None and (limit > 1 or turn % 3 == 0):
+        selected.remove(stale)
+        selected.insert(min(limit - 1, len(selected)), stale)
     ordered = [row["semantic_key"] for row in selected]
     result = enrich_jobs(
         repository,
@@ -198,6 +213,7 @@ def _enrich_review(repository, rows, client, limit, profile, model, new_keys, tu
         max_age_hours=freshness_hours,
         retry_after_hours=retry_hours,
         respect_cooldown=True,
+        include_rejected=True,
     )
     # Newly loaded requirements may hard-reject a role before any paid scoring.
     repository.screen_keys(
@@ -617,7 +633,15 @@ def daily_cycle(
             for search in searches:
                 progress(f"Collecting {search.name}...")
                 try:
-                    batch = collect(search.url)
+                    cooldown = repository.source_cooldown(search.source)
+                    if cooldown:
+                        from job_radar.sources.base import CollectionBatch
+                        batch = CollectionBatch("rate_limited", search.url, error="Source cooldown active",
+                                                stop_reason="cooldown", http_status=429)
+                    else:
+                        batch = collect(search.url)
+                        if batch.status == "rate_limited" or batch.http_status == 429:
+                            repository.defer_source(search.source, max(3600, batch.retry_after_seconds or 0))
                     result = ingest_observations(repository, batch.jobs)
                     new_source_keys.update(result.inserted_keys)
                     for key in ("inserted", "changed", "unchanged"):
@@ -749,7 +773,7 @@ def daily_cycle(
                             cached=result.cached,
                             failed=result.failed,
                             skipped=result.skipped,
-                            status="partial" if result.failed else "success",
+                            status="partial" if result.errors else "success",
                         )
                         report["errors"].extend(f"Scoring: {e}" for e in result.errors)
                     except Exception as error:

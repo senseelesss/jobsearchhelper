@@ -7,7 +7,7 @@ from typing import Any
 from job_radar.models import normalize_semantic_text
 from job_radar.eligibility import assess_location, assess_seniority, load_policy
 
-RULES_PATH = Path(__file__).with_name("screening_rules.v4.json")
+RULES_PATH = Path(__file__).with_name("screening_rules.v5.json")
 
 
 @dataclass(frozen=True, slots=True)

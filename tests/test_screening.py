@@ -200,7 +200,7 @@ def test_screening_persists_structured_reasons_and_rules_version(tmp_path) -> No
 
     assert counts == {"eligible": 0, "review": 0, "rejected": 1}
     assert row["screening_status"] == "rejected"
-    assert row["screening_rules_version"] == "screening-v4-eligibility"
+    assert row["screening_rules_version"] == "screening-v5-integrated"
     assert isinstance(row["rejection_reasons"], list)
     assert {reason["code"] for reason in row["rejection_reasons"]} == {
         "seniority",

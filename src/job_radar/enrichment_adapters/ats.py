@@ -59,13 +59,39 @@ def parse_posting(document: str, status_code: int, source: str) -> ParsedPage:
         value = json.loads(document)
         if not isinstance(value, dict):
             raise ValueError()
+        metadata = {
+            "extraction": source + "_public_api",
+            "title": value.get("title", value.get("text", "")),
+        }
         if source == "greenhouse":
             body = value.get("content", "")
         else:
-            body = value.get("description", "")
+            body = (
+                value.get("description")
+                or value.get("descriptionBody")
+                or value.get("descriptionPlain")
+                or ""
+            )
             for section in value.get("lists", []):
                 body += f"\n{section.get('text', '')}\n{section.get('content', '')}"
-            body += "\n" + value.get("additional", "")
+            supplement = value.get("salaryDescription") or value.get("salaryDescriptionPlain") or ""
+            # Some employers put contract conditions and duties in this documented
+            # field. Keep the evidence; never derive hours from the numeric pay range.
+            if supplement and supplement not in body:
+                body += "\n" + supplement
+            body += "\n" + (value.get("additional") or value.get("additionalPlain") or "")
+            if not BeautifulSoup(html.unescape(body), "html.parser").get_text(strip=True):
+                return ParsedPage("empty", error="No public posting description")
+            workplace = value.get("workplaceType")
+            if workplace in {"hybrid", "remote", "on-site"}:
+                body += "\nWorkplace: " + workplace
+            metadata.update(
+                {
+                    k: value[k]
+                    for k in ("workplaceType", "salaryRange", "categories", "applyUrl")
+                    if value.get(k)
+                }
+            )
             commitment = value.get("categories", {}).get("commitment", "")
             if commitment:
                 body += "\nEmployment type: " + str(commitment)
@@ -75,10 +101,7 @@ def parse_posting(document: str, status_code: int, source: str) -> ParsedPage:
         return description_page(
             text,
             "high",
-            {
-                "extraction": source + "_public_api",
-                "title": value.get("title", value.get("text", "")),
-            },
+            metadata,
         )
     except (ValueError, TypeError, AttributeError):
         return ParsedPage("failed", error="Malformed public ATS response")

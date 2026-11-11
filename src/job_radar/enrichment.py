@@ -6,6 +6,7 @@ import logging
 
 from job_radar.enrichment_adapters import adapter_for
 from job_radar.enrichment_adapters.common import (
+    completeness,
     description_hash,
     description_language,
 )
@@ -39,7 +40,6 @@ class EnrichmentResult:
 
     @property
     def completeness(self) -> str:
-        from job_radar.enrichment_adapters.common import completeness
         return completeness(self.fetch_status, self.description, self.fetch_error)
 
     def to_dict(self) -> dict[str, Any]:
@@ -71,14 +71,15 @@ def _fetch(
     fetched_at = _now()
     try:
         from job_radar.enrichment_adapters.ats import public_posting, application_link, parse_posting
-        from job_radar.enrichment_adapters.common import structured_metadata
+        from job_radar.enrichment_adapters.common import structured_metadata, select_job_document
 
         target = str(row["url"])
         ats = public_posting(target)
         response = client.get(ats[1] if ats else target)
+        document = response.body if ats else select_job_document(response.body, str(row["title"]), target)
         parsed = (parse_posting(response.body, response.status_code, ats[0]) if ats
-                  else adapter_for(str(row["source"])).parse(response.body, response.status_code))
-        metadata = {**structured_metadata(response.body), **parsed.metadata,
+                  else adapter_for(str(row["source"])).parse(document, response.status_code))
+        metadata = {**structured_metadata(document), **parsed.metadata,
                     "original_url": target, "content_url": response.final_url}
         # Only an explicit single ATS link can add one bounded public GET.
         link = application_link(response.body) if not ats and response.status_code == 200 else ""
@@ -157,8 +158,21 @@ def _snippet_fallback(
     )
 
 
+def enrichment_attempt_state(repository, row) -> str:
+    attempt = repository.enrichment_attempt(row["url"])
+    if not attempt:
+        return "SOURCE_SUPPLIED" if row["fetch_status"] == "success" else "NOT_ATTEMPTED"
+    if attempt["last_status"] != "success":
+        if attempt["attempts"] >= 5:
+            return "RETRY_EXHAUSTED"
+        if attempt["next_retry_at"] > _now():
+            return "RETRY_SCHEDULED"
+        return "RETRY_DUE"
+    return "ATTEMPTED"
+
+
 def enrichment_report(
-    repository: JobRepository, only: str = "eligible"
+    repository: JobRepository, only: str | None = "eligible"
 ) -> list[dict[str, Any]]:
     return [
         {
@@ -168,8 +182,10 @@ def enrichment_report(
             "fetch_error": group[0]["fetch_error"],
             "http_status": group[0]["http_status"],
             "final_url": group[0]["final_url"] or group[0]["url"],
-            "completeness": _result_from_cache(group[0]).completeness,
+            "completeness": completeness(group[0]["fetch_status"], group[0]["description"] or group[0]["snippet"], group[0]["fetch_error"]),
             "attempt": repository.enrichment_attempt(group[0]["url"]),
+            "attempt_state": enrichment_attempt_state(repository, group[0]),
+            "screening_status": group[0]["screening_status"],
         }
         for group in semantic_groups(repository.all(only))
     ]
@@ -189,6 +205,7 @@ def enrich_jobs(
     retry_after_hours: float = 24,
     respect_cooldown: bool = False,
     max_attempts: int = 5,
+    include_rejected: bool = False,
 ) -> dict[str, Any]:
     started, requests, deferred = time.monotonic(), 0, 0
     refresh_failed = 0
@@ -233,7 +250,7 @@ def enrich_jobs(
             return 0 <= (datetime.now(timezone.utc) - stamp).total_seconds() < max_age_hours * 3600
         except (ValueError, KeyError):
             return False
-    statuses = ("eligible", "review") if only is None else (only,)
+    statuses = ("eligible", "review", "rejected") if include_rejected else ("eligible", "review") if only is None else (only,)
     rows = [
         row
         for status in statuses

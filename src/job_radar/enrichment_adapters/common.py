@@ -3,7 +3,6 @@ import html
 import json
 import re
 from dataclasses import dataclass, field
-from html.parser import HTMLParser
 from typing import Any
 
 
@@ -21,41 +20,6 @@ class ParsedPage:
         return completeness(self.status, self.description, self.error)
 
 
-class _ElementTextParser(HTMLParser):
-    def __init__(self, attribute: str, values: set[str]) -> None:
-        super().__init__(convert_charrefs=True)
-        self.attribute = attribute
-        self.values = values
-        self.depth = 0
-        self.parts: list[str] = []
-
-    def handle_starttag(
-        self, tag: str, attributes: list[tuple[str, str | None]]
-    ) -> None:
-        attrs = dict(attributes)
-        if self.depth:
-            if tag in {"br", "li", "p", "div", "h1", "h2", "h3"}:
-                self.parts.append("\n")
-            if tag not in {"br", "hr", "img", "input", "meta", "link"}:
-                self.depth += 1
-            return
-
-        value = attrs.get(self.attribute, "") or ""
-        candidates = set(value.split()) if self.attribute == "class" else {value}
-        if candidates & self.values:
-            self.depth = 1
-
-    def handle_endtag(self, tag: str) -> None:
-        if self.depth:
-            self.depth -= 1
-            if tag in {"li", "p", "div", "h1", "h2", "h3"}:
-                self.parts.append("\n")
-
-    def handle_data(self, data: str) -> None:
-        if self.depth:
-            self.parts.append(data)
-
-
 def normalize_description(value: str) -> str:
     lines = [
         re.sub(r"\s+", " ", html.unescape(line)).strip()
@@ -67,9 +31,18 @@ def normalize_description(value: str) -> str:
 def extract_element_text(
     document: str, attribute: str, values: set[str]
 ) -> str:
-    parser = _ElementTextParser(attribute, values)
-    parser.feed(document)
-    return normalize_description("".join(parser.parts))
+    from bs4 import BeautifulSoup
+    soup = BeautifulSoup(document, "html.parser")
+    def matches(tag):
+        value = tag.get(attribute, [])
+        candidates = set(value if isinstance(value, list) else [value])
+        return bool(candidates & values)
+    element = soup.find(matches)
+    if element is None:
+        return ""
+    for tag in element.select("script,style,nav,button,form"):
+        tag.decompose()
+    return normalize_description(element.get_text("\n", strip=True))
 
 
 def _json_ld_objects(value: Any) -> list[dict[str, Any]]:
@@ -96,6 +69,32 @@ def job_postings(document: str) -> list[dict[str, Any]]:
             if "JobPosting" in (types if isinstance(types, list) else [types]):
                 postings.append(obj)
     return postings
+
+
+def select_job_document(document: str, title: str, url: str) -> str:
+    from bs4 import BeautifulSoup
+    from job_radar.models import normalize_semantic_text
+    from urllib.parse import urlsplit
+
+    postings = job_postings(document)
+    if len(postings) <= 1:
+        return document
+    path = urlsplit(url).path.rstrip("/")
+    exact_url = [p for p in postings if isinstance(p.get("url"), str)
+                 and urlsplit(p["url"]).hostname == urlsplit(url).hostname
+                 and urlsplit(p["url"]).path.rstrip("/") == path]
+    matches = exact_url or [p for p in postings if normalize_semantic_text(str(p.get("title", "")))
+                           == normalize_semantic_text(title)]
+    if not matches or len({str(p.get("description", "")) for p in matches}) != 1:
+        return document
+    soup = BeautifulSoup(document, "html.parser")
+    for script in soup.find_all("script"):
+        if str(script.get("type", "")).lower().startswith("application/ld+json"):
+            script.decompose()
+    script = soup.new_tag("script", type="application/ld+json")
+    script.string = json.dumps(matches[0])
+    soup.append(script)
+    return str(soup)
 
 
 def structured_metadata(document: str) -> dict[str, Any]:
@@ -172,7 +171,8 @@ def description_page(description: str, confidence: str,
     truncated = text.endswith(("...", "…")) or any(x in lowered for x in (
         "sign in to read more", "log in to read more", "full description unavailable"))
     boilerplate = any(marker in lowered for marker in ("join our talent community", "subscribe to job alerts", "browse all our open positions"))
-    if truncated or boilerplate:
+    sections = re.search(r"responsibilit|requirements|qualifications|your tasks|you will|aufgaben|anforderungen|dein profil|ihr profil", lowered)
+    if truncated or (boilerplate and not sections):
         return ParsedPage("snippet_only", text, description_language(text), "low",
                           "Truncated or insufficient job evidence", metadata or {})
     return ParsedPage("success", text, description_language(text), confidence,

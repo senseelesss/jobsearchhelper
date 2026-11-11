@@ -1,4 +1,5 @@
 import time
+import math
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -10,6 +11,7 @@ class HttpResponse:
     status_code: int
     body: str
     final_url: str
+    retry_after_seconds: float | None = None
 
 
 class HttpClient:
@@ -93,9 +95,6 @@ class HttpClient:
                 self.metrics["http_errors"] += 1
                 charset = error.headers.get_content_charset() or "utf-8"
                 body = error.read().decode(charset, errors="replace")
-                if error.code not in {429, 500, 502, 503, 504} or attempt == self.retries:
-                    return HttpResponse(error.code, body, error.geturl())
-                last_error = error
                 retry_after = error.headers.get("Retry-After", "") if hasattr(error.headers, "get") else ""
                 try:
                     delay = float(retry_after)
@@ -106,9 +105,14 @@ class HttpClient:
                         delay = (parsedate_to_datetime(retry_after) - datetime.now(timezone.utc)).total_seconds()
                     except (TypeError, ValueError, OverflowError):
                         delay = 0
+                delay = delay if math.isfinite(delay) and delay > 0 else 0
+                response = HttpResponse(error.code, body, error.geturl(), delay or None)
+                if error.code not in {429, 500, 502, 503, 504} or attempt == self.retries:
+                    return response
+                last_error = error
                 if delay > self.max_backoff_seconds:
                     # Do not retry earlier than requested, or block the bounded run for minutes.
-                    return HttpResponse(error.code, body, error.geturl())
+                    return response
                 time.sleep(max(0, delay, min(self.max_backoff_seconds, self.backoff_seconds * 2**attempt)))
                 continue
             except (urllib.error.URLError, TimeoutError, OSError) as error:
