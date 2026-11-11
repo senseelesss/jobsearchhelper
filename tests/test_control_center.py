@@ -660,10 +660,11 @@ def test_detached_gateway_to_existing_cli_offline(rig, monkeypatch):
         program = (
             "import sys; from unittest.mock import patch; "
             "from job_radar.sources.base import CollectionBatch; "
-            "from job_radar.cli import main; "
+            "from job_radar.cli import main; from job_radar.http import HttpResponse; "
             "sys.argv=" + repr(["job-radar", *daily[3:]]) + "; "
             "replacement=lambda client,url,**kw:CollectionBatch('empty',url,pages_fetched=1); "
-            "patch('job_radar.collection.collect_search',replacement).start(); main()"
+            "patch('job_radar.collection.collect_search',replacement).start(); "
+            "patch('job_radar.http.HttpClient.get',return_value=HttpResponse(200,'<div class=\"show-more-less-html__markup\">Build Python API services with automated tests. 20 hours per week.</div>','https://example.org/jobs/0')).start(); main()"
         )
         command[-1] = json.dumps([sys.executable, "-c", program])
         return real_popen(command, **kwargs)
@@ -675,7 +676,10 @@ def test_detached_gateway_to_existing_cli_offline(rig, monkeypatch):
     # Bounded wait on this particular local child, not a scheduler or collector loop.
     rig.search.children[0].wait(timeout=15)
     result = rig.search.status()
-    assert result["status"] == "success"
+    assert result["status"] == "partial"  # Unsupported synthetic source cannot supply a JD.
+    assert result["summary"]["enrichment"]["requests"] == 3
+    assert result["summary"]["enrichment"]["success"] == 2
+    assert result["summary"]["enrichment"]["snippet_only"] == 1
     assert result["summary"]["sources"][0]["status"] == "empty"
     assert result["summary"]["inserted"] == 0
     assert result["run_id"] > 0
