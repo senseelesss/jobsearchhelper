@@ -43,7 +43,7 @@ def supervise(database: Path, lock_fd: int, timeout: int, run: str, command: lis
         if row and row["status"] in {"success", "partial"}:
             report = json.loads(row["counts_json"])
             state.update(
-                status=row["status"],
+                status="failed" if report.get("outcome") == "FAILED" else row["status"],
                 run_id=row["id"],
                 summary={
                     key: report[key]
@@ -79,6 +79,7 @@ def supervise(database: Path, lock_fd: int, timeout: int, run: str, command: lis
         state["ended"] = time.time()
         if store.get("search", {}).get("id") == run:
             store.set("search", state)
+            store.completed(state)
         signal.signal(signal.SIGTERM, previous)
         os.close(lock_fd)
         store.close()

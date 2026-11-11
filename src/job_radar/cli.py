@@ -122,8 +122,11 @@ def _daily(args, settings):
         searches = []
         initial_errors.append(f"Search configuration: {error_label(error)}")
     client = PlaywrightClient() if args.transport == "playwright" else HttpClient(15, 2, 1, same_host_redirects=True)
+    by_url = {search.url: search for search in searches}
     def collector(url):
-        return collect_search(client, url, limit=args.limit, max_pages=args.pages, details=args.details)
+        profile = by_url[url]
+        filters = {"include": profile.includes} if profile.title_terms or profile.location_terms else {}
+        return collect_search(client, url, limit=args.limit, max_pages=args.pages, details=args.details, **filters)
     def email_fetcher():
         from job_radar.gmail import gmail_service, fetch_messages
         if not settings.token_path.is_file():
@@ -152,6 +155,18 @@ def _daily(args, settings):
                 )
         except Exception as error:
             initial_errors.append(f"Scoring configuration: {error_label(error)}")
+    run_cap = getattr(args, "ai_run_budget_usd", None)
+    day_cap = getattr(args, "ai_day_budget_usd", None)
+    run_cap = settings.ai_run_budget_usd if run_cap is None else run_cap
+    day_cap = settings.ai_day_budget_usd if day_cap is None else day_cap
+    if provider is not None and (run_cap or day_cap):
+        from job_radar.ai.budget import BudgetedProvider
+        try:
+            provider = BudgetedProvider(provider, Path(args.database) if args.database else settings.database_path,
+                                        settings, run_cap, day_cap)
+        except ValueError:
+            provider = None
+            initial_errors.append("Invalid AI budget configuration")
     if args.telegram and (not settings.telegram_bot_token or not settings.telegram_chat_id):
         initial_errors.append("Telegram configuration missing; run telegram-connect")
     result = daily_cycle(
@@ -311,7 +326,7 @@ def _enrichment_report(args: argparse.Namespace, settings: Settings) -> None:
 
     repository = JobRepository(settings.database_path)
     try:
-        rows = enrichment_report(repository, args.only)
+        rows = enrichment_report(repository, None if getattr(args, "all", False) else args.only)
     finally:
         repository.close()
 
@@ -607,6 +622,8 @@ def _telegram_poll(settings: Settings, args) -> None:
         asyncio.run(poll(settings, args))
     except KeyboardInterrupt:
         print("Telegram polling stopped")
+    except ValueError as error:
+        raise SystemExit(str(error)) from None
 
 
 def _screen(settings: Settings) -> None:
@@ -745,6 +762,8 @@ def parser() -> argparse.ArgumentParser:
                        help="Global eligible JD request budget before scoring")
     daily.add_argument("--email-limit", type=int, choices=range(1,1001), default=100, metavar="1..1000")
     daily.add_argument("--no-email", action="store_true")
+    daily.add_argument("--ai-run-budget-usd", type=float)
+    daily.add_argument("--ai-day-budget-usd", type=float)
     daily.add_argument("--score-limit", type=int, choices=range(26), default=0, metavar="0..25")
     daily.add_argument("--score-retry-failed", action="store_true",
                        help="Retry failed scores only; same paid-call limit applies")
@@ -776,6 +795,7 @@ def parser() -> argparse.ArgumentParser:
     enrich.add_argument("--refresh", action="store_true")
     report = commands.add_parser("enrichment-report")
     report.add_argument("--only", choices=("eligible", "review"), default="eligible")
+    report.add_argument("--all", action="store_true", help="Include rejected and unscreened jobs")
     report.add_argument("--json", action="store_true", help="Include completeness, provenance and retry state")
     score = commands.add_parser("score")
     score_scope = score.add_mutually_exclusive_group()
@@ -811,11 +831,23 @@ def parser() -> argparse.ArgumentParser:
     control.add_argument("--database", help="Explicit isolated or production database")
     control.add_argument("--searches", default="data/searches.yaml")
     control.add_argument("--output", default="outputs/telegram")
+    control.add_argument("--enrich-limit", type=int, choices=range(11), default=3)
+    control.add_argument("--score-limit", type=int, choices=range(1,6), default=2)
     control.add_argument("--cooldown", type=int, default=300)
     control.add_argument("--search-timeout", type=int, default=600)
     control.add_argument("--search-limit", type=int, default=15)
     control.add_argument("--max-pages", type=int, default=2)
     control.add_argument("--transport", choices=("playwright", "http"), default="playwright")
+    health = commands.add_parser("health", help="Read-only local configuration and database health")
+    health.add_argument("--database")
+    health.add_argument("--searches", default="data/searches.yaml")
+    health.add_argument("--output", default="outputs/daily")
+    health.add_argument("--require-telegram", action="store_true")
+    initialize = commands.add_parser("init-db", help="Initialize/upgrade explicitly named DB with backup")
+    initialize.add_argument("--database", required=True)
+    backup = commands.add_parser("backup", help="Consistent SQLite backup without migration")
+    backup.add_argument("--database")
+    backup.add_argument("--output", required=True)
     commands.add_parser("screen")
     commands.add_parser("stats")
     run = commands.add_parser(
@@ -832,9 +864,35 @@ def main() -> None:
     import os
     os.umask(0o077)
     args = parser().parse_args()
-    settings = Settings.from_env()
+    try:
+        settings = Settings.from_env()
+    except (ValueError, OSError):
+        raise SystemExit("Invalid numeric or file configuration. Check the example configuration.") from None
 
-    if args.command == "search-add":
+    if args.command in {"health", "init-db", "backup"}:
+        database = Path(args.database) if args.database else settings.database_path
+        if args.command == "health":
+            from job_radar.operations import health
+            report = health(settings, database, Path(args.searches), Path(args.output), require_telegram=args.require_telegram)
+            print(json.dumps(report, ensure_ascii=False, indent=2))
+            if report["errors"]:
+                raise SystemExit(1)
+        elif args.command == "backup":
+            from job_radar.backups import backup_database
+            destination = Path(args.output)
+            print(backup_database(database, destination, keep=None))
+            sidecar = database.with_suffix(database.suffix + ".telegram.sqlite3")
+            if sidecar.is_file():
+                print(backup_database(sidecar, destination / "telegram", keep=None))
+        else:
+            from job_radar.runner import RunLock
+            from job_radar.backups import backup_database
+            with RunLock(database.with_suffix(database.suffix + ".run.lock")):
+                if database.exists():
+                    print("Backup:", backup_database(database, database.parent / "migration-backups", keep=None))
+                with JobRepository(database) as repo:
+                    print("Database ready:", repo.connection.execute("PRAGMA quick_check").fetchone()[0])
+    elif args.command == "search-add":
         _search_add(args)
     elif args.command in {"telegram-connect", "telegram-check"}:
         _telegram_connect(args, settings)

@@ -429,6 +429,29 @@ LABELS.update(
 )
 
 
+# Integrated search UI; all additions have uk/de/en text.
+RC_STRINGS = {
+    "help": ("Керуйте пошуком і відгуками кнопками. /start /menu — меню, /help — довідка. Посилання не надсилає відгук. Повний пошук із AI потребує підтвердження.", "Suche und Bewerbungen per Schaltfläche. /start /menu — Menü, /help — Hilfe. Links versenden keine Bewerbung. AI-Vollsuche benötigt Bestätigung.", "Use buttons for search and applications. /start /menu opens the dashboard; /help shows help. Links do not submit applications. Full AI search requires confirmation."),
+    "full_search": ("Повний пошук + AI", "Vollsuche + AI", "Full search + AI"),
+    "confirm_paid": ("Підтвердити платний пошук", "Bezahlte Suche bestätigen", "Confirm paid search"),
+    "ai_unavailable": ("AI-пошук недоступний: перевірте ключ, профіль і додатні ліміти бюджету.", "AI-Suche nicht verfügbar: Schlüssel, Profil und positive Budgetgrenzen prüfen.", "AI search unavailable: check key, profile and positive budget caps."),
+    "full_quote": ("Модель: {model}\nВерхній резерв: ${maximum:.4f}\nЛіміт запуску: ${run:.4f}; доби: ${day:.4f}\nКеш може зменшити витрати. Невдалі запити зберігають резерв. Підтвердити?", "Modell: {model}\nMaximale Reservierung: ${maximum:.4f}\nLaufgrenze: ${run:.4f}; Tagesgrenze: ${day:.4f}\nCache kann Kosten senken. Fehlgeschlagene Anfragen behalten Reservierungen. Bestätigen?", "Model: {model}\nMaximum reservation: ${maximum:.4f}\nRun cap: ${run:.4f}; daily cap: ${day:.4f}\nCache may reduce cost. Failed requests retain reservations. Confirm?"),
+    "start_search": ("Швидкий пошук · без AI", "Schnellsuche · ohne AI", "Quick search · no AI"),
+    "search_config": ("Профілі: {count} · {limit} вакансій/профіль · {seconds} с\nШвидкий: збір, фільтри, обмежене збагачення без AI. Повний: те саме + AI після підтвердження. Без Gmail і дайджесту.", "Profile: {count} · {limit} Stellen/Profil · {seconds} s\nSchnell: Sammlung, Filter und begrenzte Anreicherung ohne AI. Voll: zusätzlich bestätigte AI. Ohne Gmail oder Digest.", "Profiles: {count} · {limit} jobs/profile · {seconds} s\nQuick: collection, filters, bounded enrichment, no AI. Full: adds confirmed AI scoring. No Gmail or digest."),
+    "budget": ("AI-пошук потребує налаштованих лімітів і окремого підтвердження.", "AI-Suche benötigt Budgetgrenzen und separate Bestätigung.", "AI search requires configured caps and separate confirmation."),
+}
+for _key, _texts in RC_STRINGS.items():
+    for _language, _text in zip(("uk", "de", "en"), _texts):
+        CATALOG[_language][_key] = _text
+LABELS.update({
+    "FULL": ("Повний", "Vollständig", "Full"),
+    "PARTIAL": ("Частковий", "Teilweise", "Partial"),
+    "MISSING": ("Відсутній", "Fehlend", "Missing"),
+    "INACCESSIBLE": ("Доступ обмежено", "Zugriff beschränkt", "Inaccessible"),
+    "EXPIRED": ("Закрита", "Abgelaufen", "Expired"),
+})
+
+
 def tr(language: str, key: str, **values) -> str:
     return (
         CATALOG.get(language, CATALOG["uk"]).get(key, CATALOG["en"].get(key, key)).format(**values)

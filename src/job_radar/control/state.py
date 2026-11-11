@@ -16,6 +16,8 @@ class ControlStore:
         self.connection.execute("PRAGMA busy_timeout=5000")
         self.connection.execute("PRAGMA journal_mode=WAL")
         self.connection.executescript("""
+            CREATE TABLE IF NOT EXISTS search_events(
+                run TEXT PRIMARY KEY, payload TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending');
             CREATE TABLE IF NOT EXISTS preferences(key TEXT PRIMARY KEY, value TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS callbacks(
                 token TEXT PRIMARY KEY, payload TEXT NOT NULL, expires REAL NOT NULL);
@@ -63,6 +65,12 @@ class ControlStore:
             "SELECT payload FROM callbacks WHERE token=? AND expires>?", (data[3:], time.time())
         ).fetchone()
         return json.loads(row[0]) if row else None
+
+    def completed(self, state):
+        if state.get("id") and state.get("status") not in {"queued", "running", "idle"}:
+            with self.connection:
+                self.connection.execute("INSERT OR IGNORE INTO search_events(run,payload) VALUES (?,?)",
+                                        (state["id"], json.dumps(state)))
 
     def prune(self):
         with self.connection:

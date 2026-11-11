@@ -84,11 +84,15 @@ class JobQuery:
                 score_cache_key=score["score_cache_key"],
             )
         row.update(assess_application(row, self.profile))
+        from job_radar.enrichment_adapters.common import completeness
+        row["jd_completeness"] = completeness(row["fetch_status"], row["description"] or row["snippet"], row["fetch_error"])
         row["full_jd"] = has_full_description(row)
         row["active"] = not is_expired(row)
         row["recommended"] = (
             row["active"]
             and row["application_eligibility"] != "ineligible"
+            and row["screening_status"] in {"eligible", "review"}
+            and row["role_fit"] in {"strong", "secondary", "relevant", "adjacent"}
             and row["application_state"] in {"not_applied", "saved"}
             and (
                 row["score_status"] == "not_started"
@@ -105,7 +109,7 @@ class JobQuery:
                 and not historical
             )
         )
-        location = row["location"].lower()
+        location = (row["location"] + " " + (row["description"] or row["snippet"])).lower()
         row["work_mode"] = (
             "hybrid"
             if "hybrid" in location
@@ -149,7 +153,7 @@ class JobQuery:
         """)
         context = json.dumps([self.profile, self.model, load_policy()], sort_keys=True)
         marker = (
-            "index-v1:"
+            "index-rc2:"
             + datetime.now(timezone.utc).date().isoformat()
             + hashlib.sha256(context.encode()).hexdigest()
         )

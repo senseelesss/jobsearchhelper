@@ -202,16 +202,27 @@ class ControlCenter:
                 raise ValueError("Invalid depth")
             self.store.set("search_pages", p["value"])
             self.search_menu()
-        elif action == "start_search":
+        elif action == "full_search":
+            quote = self.search.quote()
+            if not quote["available"]:
+                self.show(self.t("ai_unavailable"), [self.nav("search")])
+                return
+            self.show(self.t("full_quote", maximum=quote["maximum"], run=quote["run_cap"],
+                             day=quote["day_cap"], model=quote["model"]),
+                      [[self.b("confirm_paid", "confirm_full_search", quote=quote["fingerprint"])],
+                       self.nav("search")])
+        elif action in {"start_search", "confirm_full_search"}:
             # A replay of this token can only display its original request outcome.
             existing = self.store.get("request:" + token)
             if not existing:
+                options = ({"mode": "full", "confirmation": p.get("quote")}
+                           if action == "confirm_full_search" else {})
                 existing = self.search.start(
-                    self.store.get("search_selection", "all"), self.store.get("search_pages", 1)
+                    self.store.get("search_selection", "all"), self.store.get("search_pages", 1), **options
                 )
                 self.store.set("request:" + token, existing)
             self.run_status(
-                existing if existing["status"] in {"cooldown", "config_missing"} else None
+                existing if existing["status"] in {"cooldown", "config_missing", "ai_unavailable"} else None
             )
         elif action == "run":
             self.run_status()
@@ -253,6 +264,36 @@ class ControlCenter:
             )
         else:
             self.show(self.t("expired"), [self.nav()])
+
+    def search_notifications(self):
+        """Claim before sending: uncertain deliveries are never blindly repeated."""
+        self.search.status()  # Recover interrupted supervisors after restart.
+        events = self.store.connection.execute(
+            "SELECT run,payload FROM search_events WHERE status='pending' LIMIT 1"
+        ).fetchall()
+        for event in events:
+            with self.store.connection:
+                claimed = self.store.connection.execute(
+                    "UPDATE search_events SET status='unknown' WHERE run=? AND status='pending'", (event["run"],)
+                ).rowcount
+            if not claimed:
+                continue
+            previous = self.message_id
+            self.message_id = None
+            self.language = self.store.get("language", "uk")
+            try:
+                self.run_status(json.loads(event["payload"]))
+            except TelegramRejectedRequest:
+                status = "pending"
+            except Exception:
+                status = "unknown"
+                logger.warning("search_completion_delivery_unknown")
+            else:
+                status = "sent"
+            finally:
+                self.message_id = previous
+            with self.store.connection:
+                self.store.connection.execute("UPDATE search_events SET status=? WHERE run=?", (status, event["run"]))
 
     def home(self):
         stats = self.jobs.statistics()
@@ -359,7 +400,7 @@ class ControlCenter:
             f"{self.t('priority')}: {label(self.language, row['application_priority'])}",
             f"{self.t('work_mode')}: {label(self.language, row['work_mode'])}",
             f"{self.t('hours')}: {label(self.language, row['hours_fit'])}",
-            f"{self.t('jd')}: {self.t('full' if row['full_jd'] else 'partial_jd')}",
+            f"{self.t('jd')}: {label(self.language, row['jd_completeness'])}",
             f"{self.t('status')}: {label(self.language, row['application_state'])}",
         ]
         if row.get("application_date"):
@@ -519,7 +560,7 @@ class ControlCenter:
         rows = []
         if profiles:
             rows += [
-                [self.b("start_search", "start_search")],
+                [self.b("start_search", "start_search"), self.b("full_search", "full_search")],
                 [self.b("all", "select", value="all")],
             ]
             rows += [[self.named(p.name, "select", value="p:" + p.name)] for p in profiles]

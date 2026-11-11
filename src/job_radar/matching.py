@@ -298,6 +298,11 @@ def score_jobs(
             scored += 1
             estimated_cost_usd += cost
         except Exception as error:
+            from job_radar.ai.budget import BudgetExceeded
+            if isinstance(error, BudgetExceeded):
+                errors.append("AI reservation budget exhausted")
+                skipped += len(candidates) - scored - failed
+                break
             errors.append(error_label(error))
             repository.save_job_score(
                 {

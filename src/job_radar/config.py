@@ -16,6 +16,8 @@ class Settings:
     enrichment_freshness_hours: float = 72
     enrichment_retry_hours: float = 24
     candidate_profile_path: Path = Path("data/candidate_profile.yaml")
+    ai_run_budget_usd: float = 0
+    ai_day_budget_usd: float = 0
     openai_api_key: str = ""
     openai_model: str = "gpt-5.4-nano"
     openai_input_cost_per_million: float = 0.20
@@ -52,6 +54,8 @@ class Settings:
                     "data/candidate_profile.yaml",
                 )
             ),
+            ai_run_budget_usd=float(os.getenv("JOB_RADAR_AI_RUN_BUDGET_USD", "0")),
+            ai_day_budget_usd=float(os.getenv("JOB_RADAR_AI_DAY_BUDGET_USD", "0")),
             openai_api_key=os.getenv("OPENAI_API_KEY", ""),
             openai_model=os.getenv("OPENAI_MODEL", "gpt-5.4-nano"),
             openai_input_cost_per_million=float(

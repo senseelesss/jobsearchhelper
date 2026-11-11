@@ -37,6 +37,10 @@ async def poll(settings, args):
     loop = asyncio.get_running_loop()
 
     def construct():
+        from job_radar.operations import health
+        preflight = health(settings, database, Path(args.searches), Path(args.output), require_telegram=True, owner_id=owner)
+        if preflight["errors"]:
+            raise ValueError("Preflight failed: " + ", ".join(preflight["errors"]))
         profile = None
         try:
             from job_radar.candidate import load_candidate_profile
@@ -47,6 +51,11 @@ async def poll(settings, args):
         repository = JobRepository(database)
         store = ControlStore(database)
         jobs = JobQuery(repository, store, profile, settings.openai_model)
+        from job_radar.ai.budget import request_ceiling
+        try:
+            ceiling = request_ceiling(settings)
+        except ValueError:
+            ceiling = 0
         config = SearchConfig(
             database,
             Path(args.searches).resolve(),
@@ -56,6 +65,13 @@ async def poll(settings, args):
             limit=args.search_limit,
             max_pages=args.max_pages,
             transport=args.transport,
+            enrichment_limit=getattr(args, "enrich_limit", 3),
+            score_limit=getattr(args, "score_limit", 2),
+            run_budget_usd=settings.ai_run_budget_usd,
+            day_budget_usd=settings.ai_day_budget_usd,
+            request_cost_usd=ceiling,
+            ai_ready=bool(settings.openai_api_key and profile and any(profile.get(k) for k in ("education", "projects", "experience"))),
+            model=settings.openai_model,
         )
         center = ControlCenter(
             jobs, SearchService(store, config), transport, owner, settings.telegram_chat_id
@@ -82,6 +98,7 @@ async def poll(settings, args):
             backoff = 1
             while True:
                 try:
+                    await loop.run_in_executor(executor, center.search_notifications)
                     updates = await asyncio.to_thread(transport.get_updates, offset, 25)
                     for update in updates:
                         update_id = int(update["update_id"])
@@ -106,6 +123,7 @@ async def poll(settings, args):
                     backoff = min(30, backoff * 2)
     finally:
         if center:
+            await loop.run_in_executor(executor, center.search.shutdown)
             await loop.run_in_executor(executor, center.store.close)
             await loop.run_in_executor(executor, center.repository.close)
         executor.shutdown(wait=True)
