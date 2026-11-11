@@ -40,6 +40,24 @@ CREATE TABLE IF NOT EXISTS jobs (
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+CREATE TABLE IF NOT EXISTS source_cooldowns (
+    source TEXT PRIMARY KEY, next_attempt_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS ai_budget_reservations (
+    id INTEGER PRIMARY KEY, day TEXT NOT NULL, run_key TEXT NOT NULL,
+    reserved_usd REAL NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_ai_budget_day ON ai_budget_reservations(day);
+CREATE INDEX IF NOT EXISTS idx_ai_budget_run ON ai_budget_reservations(run_key);
+CREATE TABLE IF NOT EXISTS enrichment_attempts (
+    url TEXT PRIMARY KEY,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    last_status TEXT NOT NULL DEFAULT '',
+    last_attempt_at TEXT NOT NULL DEFAULT '',
+    next_retry_at TEXT NOT NULL DEFAULT '',
+    latency_ms REAL NOT NULL DEFAULT 0,
+    metadata_json TEXT NOT NULL DEFAULT '{}'
+);
 CREATE TABLE IF NOT EXISTS enrichment_cache (
     url TEXT PRIMARY KEY,
     description TEXT NOT NULL DEFAULT '',
@@ -295,8 +313,13 @@ class JobRepository:
         self.connection.execute("PRAGMA busy_timeout = 5000")
         self.connection.execute("PRAGMA foreign_keys = ON")
         self.connection.execute("PRAGMA journal_mode = WAL")
-        self.connection.executescript(SCHEMA)
-        self._migrate()
+        try:
+            # Serialize schema inspection and additive migration across processes.
+            self.connection.executescript("BEGIN IMMEDIATE;\n" + SCHEMA)
+            self._migrate()
+        except BaseException:
+            self.connection.close()
+            raise
 
     def __enter__(self) -> "JobRepository":
         return self
@@ -325,22 +348,14 @@ class JobRepository:
                 self.connection.execute(
                     f"ALTER TABLE telegram_deliveries ADD COLUMN {name} {definition}"
                 )
-        self.connection.execute(
-            """
-            UPDATE telegram_deliveries
-            SET delivery_status = CASE
-                    WHEN status IN ('delivered', 'applied', 'skipped', 'failed')
-                        THEN status
-                    ELSE delivery_status
-                END,
-                status = CASE
-                    WHEN status = 'failed' THEN 'failed'
-                    WHEN delivery_status IN ('delivered', 'applied', 'skipped')
-                        THEN delivery_status
-                    ELSE status
-                END
-            """
-        )
+        # Copy legacy status once into a newly added column. Re-running a bidirectional
+        # update on open could erase an Applied value when the old status was Delivered.
+        if "delivery_status" not in telegram_columns and "status" in telegram_columns:
+            self.connection.execute("UPDATE telegram_deliveries SET delivery_status=status "
+                                    "WHERE status IN ('delivered','applied','skipped','failed')")
+        elif "status" not in telegram_columns and "delivery_status" in telegram_columns:
+            self.connection.execute("UPDATE telegram_deliveries SET status=delivery_status "
+                                    "WHERE delivery_status IN ('delivered','applied','skipped','failed')")
         self.connection.execute(
             """
             UPDATE jobs
@@ -432,7 +447,7 @@ class JobRepository:
             self.connection.execute(
                 "UPDATE jobs SET semantic_key = ? WHERE dedupe_key = ?",
                 (
-                    semantic_key(row["title"], row["company"], row["location"]),
+                    semantic_key(row["title"], row["company"], row["location"], row["dedupe_key"]),
                     row["dedupe_key"],
                 ),
             )
@@ -618,15 +633,7 @@ class JobRepository:
                     screening_status = 'review',
                     rejection_reasons = '[]',
                     screening_rules_version = '',
-                    description = '',
-                    description_language = '',
                     fetched_at = '',
-                    fetch_status = '',
-                    fetch_error = '',
-                    final_url = '',
-                    description_hash = '',
-                    description_confidence = '',
-                    http_status = NULL,
                     updated_at = CURRENT_TIMESTAMP
                 """,
                 values,
@@ -782,7 +789,7 @@ class JobRepository:
             result = screen_job(
                 row["title"],
                 row["location"],
-                "\n".join(filter(None, (row["snippet"], row["description"]))),
+                row["description"] or row["snippet"],
                 rules=rules,
                 fetch_status="expired" if is_expired(dict(row)) else row["fetch_status"],
                 fetch_error=row["fetch_error"],
@@ -795,7 +802,7 @@ class JobRepository:
                 WHERE dedupe_key = ?
                 """,
                 (
-                    semantic_key(row["title"], row["company"], row["location"]),
+                    semantic_key(row["title"], row["company"], row["location"], row["dedupe_key"]),
                     result.status,
                     json.dumps(result.rejection_reasons, ensure_ascii=False),
                     result.rules_version,
@@ -830,6 +837,41 @@ class JobRepository:
             result["rejection_reasons"] = json.loads(result["rejection_reasons"])
         return results
 
+    def source_cooldown(self, source: str) -> str | None:
+        row = self.connection.execute("SELECT next_attempt_at FROM source_cooldowns WHERE source=?", (source,)).fetchone()
+        return row[0] if row and row[0] > _now() else None
+
+    def defer_source(self, source: str, seconds: float) -> None:
+        from datetime import datetime, timedelta, timezone
+        stamp = (datetime.now(timezone.utc) + timedelta(seconds=seconds)).isoformat()
+        with self.connection:
+            self.connection.execute("INSERT OR REPLACE INTO source_cooldowns VALUES (?,?)", (source, stamp))
+
+    def enrichment_attempt(self, url: str) -> dict[str, Any] | None:
+        row = self.connection.execute(
+            "SELECT * FROM enrichment_attempts WHERE url = ?", (url,)
+        ).fetchone()
+        return dict(row) if row else None
+
+    def record_enrichment_attempt(self, url: str, status: str, latency_ms: float,
+                                  metadata: dict[str, Any], retry_hours: float) -> None:
+        from datetime import datetime, timedelta, timezone
+
+        previous = self.enrichment_attempt(url) or {}
+        attempts = 0 if status == "success" else int(previous.get("attempts", 0)) + 1
+        now = datetime.now(timezone.utc)
+        delay = retry_hours * min(2 ** max(0, attempts - 1), 8)
+        if status in {"expired", "blocked"}:
+            delay = max(delay, 168)
+        # Successful metadata survives a failed refresh, just like description text.
+        saved = json.dumps(metadata, ensure_ascii=False) if metadata else previous.get("metadata_json", "{}")
+        self.connection.execute(
+            "INSERT OR REPLACE INTO enrichment_attempts VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (url, attempts, status, now.isoformat(),
+             (now + timedelta(hours=delay)).isoformat(), latency_ms, saved),
+        )
+        self.connection.commit()
+
     def cached_enrichment(self, url: str) -> dict[str, Any] | None:
         row = self.connection.execute(
             "SELECT * FROM enrichment_cache WHERE url = ?", (url,)
@@ -837,6 +879,14 @@ class JobRepository:
         return dict(row) if row else None
 
     def cache_enrichment(self, url: str, values: dict[str, Any]) -> None:
+        previous = self.cached_enrichment(url)
+        if (previous and previous["fetch_status"] == "success" and previous["description"]
+                and values.get("fetch_status") not in {"success", "expired"}):
+            # Attempt state records the failure without destroying the last good cache.
+            values = {**values, **{key: previous[key] for key in (
+                "description", "description_language", "fetched_at", "fetch_status",
+                "description_hash", "description_confidence", "final_url",
+            )}}
         complete_values = {
             "description_confidence": "",
             "http_status": None,
@@ -869,6 +919,15 @@ class JobRepository:
         self.connection.commit()
 
     def update_enrichment(self, dedupe_key: str, values: dict[str, Any]) -> None:
+        previous = self.connection.execute("SELECT * FROM jobs WHERE dedupe_key=?", (dedupe_key,)).fetchone()
+        if (previous and previous["fetch_status"] == "success" and previous["description"]
+                and values.get("fetch_status") != "success"):
+            # Preserve verified content after snippets, walls and failed re-fetches.
+            fields = ("description", "description_language", "description_hash", "description_confidence")
+            values = {**values, **{key: previous[key] for key in fields}}
+            if values.get("fetch_status") != "expired":
+                values.update(fetch_status="success", fetched_at=previous["fetched_at"],
+                              fetch_error="Refresh failed: " + str(values.get("fetch_status", "unknown")))
         complete_values = {
             "description_confidence": "",
             "http_status": None,

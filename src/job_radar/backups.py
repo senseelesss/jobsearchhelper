@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
-def backup_database(source: Path, directory: Path, keep: int = 7) -> Path:
+def backup_database(source: Path, directory: Path, keep: int | None = 7) -> Path:
     if not source.is_file():
         raise ValueError("Database does not exist")
     directory.mkdir(parents=True, exist_ok=True)
@@ -13,6 +13,7 @@ def backup_database(source: Path, directory: Path, keep: int = 7) -> Path:
             original.backup(target)
             if target.execute("PRAGMA quick_check").fetchone()[0] != "ok":
                 raise RuntimeError("Backup integrity check failed")
-    for old in sorted(directory.glob("job-radar-*.db"))[: -max(1, keep)]:
-        old.unlink()
+    if keep is not None:
+        for old in sorted(directory.glob("job-radar-*.db"))[: -max(1, keep)]:
+            old.unlink()
     return output

@@ -3,6 +3,11 @@ version: candidate-profile-v1
 # The private populated file is intentionally ignored by Git.
 name: ""
 location: Vienna, Austria
+search_preferences:
+  target_hours: [20, 25]
+  acceptable_hours: [15, 30]
+# Optional verified work_authorization facts can be added privately. Residence
+# alone does not prove remote eligibility; do not invent citizenship/permit facts.
 target_roles:
   - Junior Backend Developer
   - Werkstudent Software Engineering

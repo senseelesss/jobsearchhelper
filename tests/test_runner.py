@@ -192,7 +192,7 @@ def test_incremental_run_reuses_ai_cache_and_does_not_resend(
     dependencies = RunDependencies(
         fetch_messages=lambda days: [_message(f"message-{days}")],
         http_client=http,
-        profile=load_candidate_profile(Path("data/candidate_profile.yaml")),
+        profile=load_candidate_profile(Path("candidate_profile.example.yaml")),
         ai_provider=provider,
         telegram_transport=telegram,
         telegram_chat_id="test-chat",
@@ -274,7 +274,7 @@ def test_one_scoring_failure_does_not_stop_other_vacancies(
                 ),
             }
         ),
-        profile=load_candidate_profile(Path("data/candidate_profile.yaml")),
+        profile=load_candidate_profile(Path("candidate_profile.example.yaml")),
         ai_provider=provider,
         telegram_transport=telegram,
         telegram_chat_id="test-chat",
@@ -320,7 +320,7 @@ def test_unchanged_vacancy_retries_failed_draft_and_telegram(
                 )
             }
         ),
-        profile=load_candidate_profile(Path("data/candidate_profile.yaml")),
+        profile=load_candidate_profile(Path("candidate_profile.example.yaml")),
         ai_provider=provider,
         telegram_transport=telegram,
         telegram_chat_id="test-chat",
@@ -357,7 +357,7 @@ def test_unchanged_vacancy_retries_failed_telegram_delivery(
                 )
             }
         ),
-        profile=load_candidate_profile(Path("data/candidate_profile.yaml")),
+        profile=load_candidate_profile(Path("candidate_profile.example.yaml")),
         ai_provider=FakeProvider(),
         telegram_transport=telegram,
         telegram_chat_id="test-chat",
@@ -391,7 +391,7 @@ def test_unchanged_vacancy_retries_incomplete_enrichment(
     dependencies = RunDependencies(
         fetch_messages=lambda days: [_message(str(days))],
         http_client=client,
-        profile=load_candidate_profile(Path("data/candidate_profile.yaml")),
+        profile=load_candidate_profile(Path("candidate_profile.example.yaml")),
         ai_provider=FakeProvider(),
         telegram_transport=FakeTelegram(),
         telegram_chat_id="test-chat",

@@ -30,7 +30,7 @@ def ingest_observations(repository, observations):
             continue
         old = next(row for row in repository.all() if row["dedupe_key"] == item.dedupe_key)
         prior = previous.get(item.dedupe_key, old)
-        if item.fetch_status in {"failed", "blocked", "empty"} and prior["description"]:
+        if item.fetch_status != "success" and item.fetch_status != "expired" and prior["description"]:
             fields = (
                 "description",
                 "description_language",

@@ -1,4 +1,4 @@
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Literal, Protocol
 
 from job_radar.http import HttpResponse
@@ -6,6 +6,15 @@ from job_radar.http import HttpResponse
 
 class PageClient(Protocol):
     def get(self, url: str) -> HttpResponse: ...
+
+
+class JobSourceAdapter(Protocol):
+    """Discovery parsers consume public responses, never perform persistence/scoring."""
+
+    def parse_search(
+        self, document: str, url: str, *, status_code: int = 200, limit: int = 5,
+        observed_at: str | None = None,
+    ) -> "CollectionBatch": ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,6 +59,8 @@ class CollectionBatch:
     warnings: tuple[str, ...] = ("First page only; pagination is not implemented.",)
     pages_fetched: int = 0
     stop_reason: str = ""
+    metrics: dict[str, int | float] = field(default_factory=dict)
+    retry_after_seconds: float | None = None
 
     def to_dict(self) -> dict[str, object]:
         return {

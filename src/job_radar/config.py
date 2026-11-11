@@ -13,7 +13,11 @@ class Settings:
     enrichment_timeout_seconds: float = 15.0
     enrichment_rate_limit_seconds: float = 1.0
     enrichment_retries: int = 2
+    enrichment_freshness_hours: float = 72
+    enrichment_retry_hours: float = 24
     candidate_profile_path: Path = Path("data/candidate_profile.yaml")
+    ai_run_budget_usd: float = 0
+    ai_day_budget_usd: float = 0
     openai_api_key: str = ""
     openai_model: str = "gpt-5.4-nano"
     openai_input_cost_per_million: float = 0.20
@@ -42,12 +46,16 @@ class Settings:
                 os.getenv("JOB_RADAR_ENRICH_RATE_LIMIT", "1")
             ),
             enrichment_retries=int(os.getenv("JOB_RADAR_ENRICH_RETRIES", "2")),
+            enrichment_freshness_hours=float(os.getenv("JOB_RADAR_ENRICH_FRESHNESS_HOURS", "72")),
+            enrichment_retry_hours=float(os.getenv("JOB_RADAR_ENRICH_RETRY_HOURS", "24")),
             candidate_profile_path=Path(
                 os.getenv(
                     "JOB_RADAR_CANDIDATE_PROFILE",
                     "data/candidate_profile.yaml",
                 )
             ),
+            ai_run_budget_usd=float(os.getenv("JOB_RADAR_AI_RUN_BUDGET_USD", "0")),
+            ai_day_budget_usd=float(os.getenv("JOB_RADAR_AI_DAY_BUDGET_USD", "0")),
             openai_api_key=os.getenv("OPENAI_API_KEY", ""),
             openai_model=os.getenv("OPENAI_MODEL", "gpt-5.4-nano"),
             openai_input_cost_per_million=float(

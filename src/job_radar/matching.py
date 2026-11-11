@@ -17,6 +17,7 @@ from job_radar.exporting import semantic_groups
 from job_radar.storage import JobRepository
 from job_radar.availability import group_expired, is_expired
 from job_radar.errors import error_label
+from job_radar.eligibility import assess_application
 
 SCORE_PROMPT_VERSION = "candidate-score-v3-hours-independent"
 DRAFT_PROMPT_VERSION = "application-draft-v1"
@@ -66,7 +67,7 @@ def _effective_vacancy(row: dict[str, Any]) -> dict[str, Any]:
     value["description_hash"] = description_hash(effective_description)
     value["provisional"] = (
         row["fetch_status"] != "success"
-        or row["description_confidence"] == "low"
+        or row["description_confidence"] not in {"high", "medium"}
         or not row["description"]
         or str(row.get("fetch_error", "")).startswith("Refresh failed")
     )
@@ -89,7 +90,9 @@ def scoring_candidates(
             continue
         if group_expired(group):
             continue
-        candidates.append(_effective_vacancy(in_scope[0]))
+        candidate = _effective_vacancy(in_scope[0])
+        candidate["created_at"] = min(group, key=_first_seen)["created_at"]
+        candidates.append(candidate)
     return candidates
 
 
@@ -132,6 +135,71 @@ def _estimated_cost(
     )
 
 
+def has_full_description(row):
+    return not _effective_vacancy(row)["provisional"]
+
+
+def _first_seen(row):
+    try:
+        value = datetime.fromisoformat(str(row.get("created_at", "")).replace("Z", "+00:00"))
+        return value.replace(tzinfo=value.tzinfo or timezone.utc).timestamp()
+    except ValueError:
+        return 0.0
+
+
+def scoring_plan(
+    repository, profile, model, *, only="eligible", limit=None, semantic_keys=None,
+    retry_failed=False, retry_after_seconds=None, new_semantic_keys=None, fairness_turn=0,
+):
+    """Plan actual calls; cache hits and cooling failures never consume call slots."""
+    profile_hash = candidate_profile_hash(profile)
+    pending, cached, deferred = [], 0, 0
+    now = datetime.now(timezone.utc)
+    for vacancy in scoring_candidates(repository, only, semantic_keys):
+        vacancy['application_state'] = repository.application_for(vacancy['dedupe_key'])['state']
+        vacancy.update(assess_application(vacancy, profile))
+        if vacancy['application_eligibility']=='ineligible':
+            continue
+        identity = (vacancy["semantic_key"], profile_hash, vacancy["description_hash"],
+                    SCORE_PROMPT_VERSION, model)
+        if repository.reusable_job_score(*identity):
+            cached += 1
+            continue
+        failure = repository.failed_job_score(*identity)
+        if retry_failed and failure is None:
+            continue
+        if failure and not retry_failed:
+            stamp = datetime.fromisoformat(failure["created_at"].replace("Z", "+00:00"))
+            stamp = stamp.replace(tzinfo=stamp.tzinfo or timezone.utc)
+            if retry_after_seconds is None or (now-stamp).total_seconds() < retry_after_seconds:
+                deferred += 1
+                continue
+        pending.append(vacancy)
+    new_keys = new_semantic_keys or set()
+
+    def priority(row):
+        return (
+            {'confirmed_target':0,'acceptable':1,'flexible_part_time':2,'unknown':3}.get(row['hours_fit'],4),
+            {'student':0,'junior':1,'internship':2,'compatible':3,'unspecified':4,'possible':5}.get(row['seniority_fit'],6),
+            {'strong':0,'relevant':1,'secondary':2,'adjacent':3,'unknown':4,'other_stack':5}.get(row['role_fit'],6),
+            row["provisional"],
+            row["semantic_key"] not in new_keys,
+            -_first_seen(row), row["dedupe_key"],
+        )
+
+    pending.sort(key=priority)
+    # Reserve one FIFO backlog slot, rather than letting aged generalists consume
+    # the whole budget ahead of newly discovered target-hours student jobs.
+    oldest = sorted(pending, key=lambda row: (_first_seen(row), row["dedupe_key"]))
+    selected = pending[:limit] if limit is not None else list(pending)
+    backlog = [row for row in oldest if row["semantic_key"] not in new_keys
+               and _first_seen(row) <= now.timestamp()-86400]
+    if selected and backlog and (len(selected) >= 2 or fairness_turn % 3 == 0):
+        if backlog[0] not in selected:
+            selected[-1] = backlog[0]
+    return selected, {"cached": cached, "deferred": deferred + len(pending)-len(selected)}
+
+
 def score_jobs(
     repository: JobRepository,
     provider: AIProvider,
@@ -143,46 +211,18 @@ def score_jobs(
     output_cost_per_million: float = 0,
     semantic_keys: set[str] | None = None,
     retry_after_seconds: float | None = None,
+    new_semantic_keys: set[str] | None = None,
+    fairness_turn: int = 0,
 ) -> ScoreSummary:
     profile_hash = candidate_profile_hash(profile)
-    all_candidates = scoring_candidates(repository, only, semantic_keys)
-    if retry_failed:
-        all_candidates = [
-            vacancy
-            for vacancy in all_candidates
-            if repository.failed_job_score(
-                str(vacancy["semantic_key"]),
-                profile_hash,
-                str(vacancy["description_hash"]),
-                SCORE_PROMPT_VERSION,
-                provider.model,
-            )
-            and not repository.reusable_job_score(
-                str(vacancy["semantic_key"]),
-                profile_hash,
-                str(vacancy["description_hash"]),
-                SCORE_PROMPT_VERSION,
-                provider.model,
-            )
-        ]
-    if limit is not None and not retry_failed:
-        # A daily call budget must make progress past yesterday's cache hits.
-        def priority(vacancy):
-            identity = (
-                str(vacancy["semantic_key"]),
-                profile_hash,
-                str(vacancy["description_hash"]),
-                SCORE_PROMPT_VERSION,
-                provider.model,
-            )
-            cached = repository.reusable_job_score(*identity) is not None
-            failed = repository.failed_job_score(*identity) is not None
-            return cached or failed, cached
-
-        all_candidates.sort(key=priority)
-    candidates = all_candidates[:limit] if limit is not None else all_candidates
-
-    scored = cached = failed = skipped = 0
+    candidates, planned = scoring_plan(
+        repository, profile, provider.model, only=only, limit=limit,
+        semantic_keys=semantic_keys, retry_failed=retry_failed,
+        retry_after_seconds=retry_after_seconds, new_semantic_keys=new_semantic_keys,
+        fairness_turn=fairness_turn,
+    )
+    scored = failed = 0
+    cached, skipped = planned["cached"], planned["deferred"]
     estimated_cost_usd = 0.0
     errors: list[str] = []
     for vacancy in candidates:
@@ -258,6 +298,11 @@ def score_jobs(
             scored += 1
             estimated_cost_usd += cost
         except Exception as error:
+            from job_radar.ai.budget import BudgetExceeded
+            if isinstance(error, BudgetExceeded):
+                errors.append("AI reservation budget exhausted")
+                skipped += len(candidates) - scored - failed
+                break
             errors.append(error_label(error))
             repository.save_job_score(
                 {
@@ -282,7 +327,6 @@ def score_jobs(
             )
             failed += 1
 
-    skipped += max(0, len(all_candidates) - len(candidates))
     return ScoreSummary(
         scored,
         cached,

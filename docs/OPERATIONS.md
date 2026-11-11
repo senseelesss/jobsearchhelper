@@ -9,6 +9,13 @@ For launch evidence and the prepared Ubuntu deployment, use
 [PRODUCTION_RUNBOOK.md](PRODUCTION_RUNBOOK.md). The latter supersedes the earlier
 deployment outline at the bottom of this page.
 
+For v1.1.0 installation and configuration, start with [README](../README.md).
+Daily, application-set and callbacks now share JOB_RADAR_DB by default (data/jobs.db
+when unset). Older daily runs defaulted to data/mvp-v1-test.db: explicitly configure
+the DB containing your existing state before upgrading. The test commands below
+use an explicit isolated DB; callbacks must use that same path. No automatic DB
+migration between paths is performed. See [release notes](RELEASE_v1.1.0.md).
+
 ## Setup after pulling the update
 
 ```bash
@@ -115,15 +122,30 @@ title/company/location matching and is not a guarantee of identifying every repo
 
 ## Optional AI scoring
 
+Application priority is now separate from technical match. See
+[APPLICATION_PRIORITY.md](APPLICATION_PRIORITY.md) for the current HIGH/MEDIUM/LOW/
+EXCLUDED policy, configurable evidence rules and first-five ranking. Unknown
+hours stay in review; explicit full-time-only and incompatible seniority do not
+enter paid scoring or actionable notifications. Source data/history remain stored.
+Reports partition priorities and hours fits separately; exclusion reasons may
+overlap and must not be summed as unique vacancy counts.
+
 The new daily command makes **no paid calls by default**. Explicitly set
 `--score-limit 3` to select at most three active eligible unapplied vacancies for scoring, using the existing
 candidate profile and model configuration. Draft generation remains separate.
 An unavailable model does not erase collected vacancies or prevent an unscored
 review queue. Existing price settings must be maintained for cost estimates.
-With scoring enabled, only successful apply/strong_apply or review>=50 scores
-enter alerts; failures/unscored roles remain in Excel. Unknown hours are a separate
-field, not a score penalty. Explicit full-time-only roles are excluded from daily
-alerts. Without scoring, the digest clearly labels its rule-based shortlist.
+Daily alerts have two tiers for every scoring budget: A contains current successful
+apply/strong_apply or review>=50 scores; B contains actionable unscored eligible/
+review roles, clearly labelled UNSCORED. Provider unavailability does not hide B.
+Failed scores, AI skip results, hard rejects and Applied/Skipped stay excluded.
+Unknown hours are separate from technical fit; explicit weekly evidence produces
+a distinct 20–25h target assessment. See [macOS staging findings](MACOS_STAGING.md).
+
+Daily defaults to --details 0 and --enrich-limit 5 (global HTTP GET budget), using
+the existing cache/rate limits before scoring. Full requirements are re-screened;
+missing JDs remain provisional. Set --enrich-limit 0 for an offline replay.
+Only missing eligible candidates are selected; no historical bulk refresh occurs.
 Requests have configurable input/output/timeout/retry bounds in `.env.example`.
 Failed scores can retry after 24h within the daily call budget; use
 `--score-retry-failed` only for an explicit bounded retry of failed inputs.

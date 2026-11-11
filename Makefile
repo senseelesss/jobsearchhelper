@@ -1,20 +1,21 @@
 .PHONY: install test lint check backfill stats
 
+JOB_RADAR_CACHE_DIR ?= $(if $(XDG_CACHE_HOME),$(XDG_CACHE_HOME),$(HOME)/.cache)/job-radar
+JOB_RADAR_VENV ?= $(JOB_RADAR_CACHE_DIR)/venv
+
 install:
-	python3 -m venv .venv
-	.venv/bin/pip install -e ".[dev]"
+	./scripts/setup.sh
 
 test:
-	.venv/bin/pytest
+	"$(JOB_RADAR_VENV)/bin/python" -m pytest
 
 lint:
-	.venv/bin/ruff check .
+	"$(JOB_RADAR_VENV)/bin/python" -m ruff check .
 
 check: test lint
 
 backfill:
-	.venv/bin/job-radar backfill --days 10
+	./bin/job-radar backfill --days 10
 
 stats:
-	.venv/bin/job-radar stats
-
+	./bin/job-radar stats

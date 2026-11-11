@@ -2,7 +2,7 @@
 
 import re
 import hashlib
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -14,6 +14,21 @@ class SavedSearch:
     name: str
     source: str
     url: str
+    title_terms: tuple[str, ...] = ()
+    location_terms: tuple[str, ...] = ()
+
+    def includes(self, job) -> bool:
+        from job_radar.models import normalize_semantic_text
+        return all(not terms or any(normalize_semantic_text(term) in normalize_semantic_text(value)
+                                    for term in terms)
+                   for terms, value in ((self.title_terms, job.title), (self.location_terms, job.location)))
+
+    def to_config(self) -> dict:
+        result = {"name": self.name, "url": self.url}
+        for key in ("title_terms", "location_terms"):
+            if terms := getattr(self, key):
+                result[key] = list(terms)
+        return result
 
 
 def validate_search_url(url: str, name: str = "") -> SavedSearch:
@@ -40,8 +55,24 @@ def validate_search_url(url: str, name: str = "") -> SavedSearch:
         source, host = "linkedin", "www.linkedin.com"
         if parsed.path.rstrip("/") != "/jobs/search":
             raise ValueError("Paste a LinkedIn /jobs/search/ URL")
+    elif host in {"www.absolventen.at", "absolventen.at"}:
+        source, host = "absolventen", "www.absolventen.at"
+        if parsed.path not in {"", "/"} or dict(parse_qsl(parsed.query)).get("feed") != "job_feed":
+            raise ValueError("Use the public Absolventen job_feed RSS URL")
+    elif host == "boards-api.greenhouse.io":
+        source = "greenhouse"
+        if not re.fullmatch(r"/v1/boards/[a-zA-Z0-9_-]+/jobs/?", parsed.path):
+            raise ValueError("Use a documented Greenhouse public board feed")
+        if dict(parse_qsl(parsed.query)).get("content") != "true":
+            raise ValueError("Greenhouse board feed requires content=true")
+    elif host in {"api.lever.co", "api.eu.lever.co"}:
+        source = "lever"
+        if not re.fullmatch(r"/v0/postings/[a-zA-Z0-9_-]+/?", parsed.path):
+            raise ValueError("Use a documented Lever public postings feed")
+        if dict(parse_qsl(parsed.query)).get("mode") != "json":
+            raise ValueError("Lever public feed requires mode=json")
     else:
-        raise ValueError("Supported search hosts: karriere.at and LinkedIn")
+        raise ValueError("Supported search hosts: karriere.at, LinkedIn, Absolventen and public ATS feeds")
     pairs = []
     for key, value in parse_qsl(parsed.query, keep_blank_values=True):
         if key.lower() in {"token", "access_token", "password", "session", "li_at"}:
@@ -77,6 +108,13 @@ def load_searches(path: Path) -> list[SavedSearch]:
                 search.source,
                 search.url,
             )
+        for field in ("title_terms", "location_terms"):
+            terms = item.get(field, [])
+            if not isinstance(terms, list) or len(terms) > 12 or any(
+                not isinstance(t, str) or not 1 <= len(t.strip()) <= 80 or not any(c.isalnum() for c in t) for t in terms
+            ):
+                raise ValueError(f"{field} must contain up to 12 short nonempty strings")
+            search = replace(search, **{field: tuple(terms)})
         if search.url not in urls:
             searches.append(search)
             names.add(name)
