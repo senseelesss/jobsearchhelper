@@ -331,3 +331,12 @@ feeds passed bounded live import/replay checks; the other requested boards have
 explicit access/terms blockers. See [measured evidence and acceptance commands](COLLECTION_V2.md).
 Baseline 254 tests; expanded suite 294 passed, Ruff passed. No paid calls, live
 Telegram sends, application submissions, main updates or deployment.
+
+
+## 2026-11-11 — Integrated v2 release candidate
+
+Both feature heads integrated; Quick Search uses bounded JD enrichment, confirmed
+Full Search uses durable per-run/day reservations, and completion messages have an
+outbox. Fixed a legacy Applied-state migration, truncated JD HTML and omitted
+Lever supplemental content. See [RC evidence and startup](RELEASE_CANDIDATE_V2.md).
+Credential rotation and live Telegram acceptance remain production gates.

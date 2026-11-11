@@ -1,5 +1,11 @@
 # Telegram Control Center v2
 
+> Historical feature-branch guide. The integrated RC now runs bounded enrichment
+> in Quick Search and adds confirmed budgeted Full Search plus durable completion
+> notifications. See [current startup and controls](../README.md) and the
+> [RC runbook](RELEASE_CANDIDATE_V2.md) for current behavior and release gates.
+
+
 Implemented on `feat/telegram-control-center-v2`, based on committed checkpoint
 `4415243`. Collection Engine v2's checkout, private `.env` and authoritative DB
 were not used for development. All validation here uses temporary databases,
