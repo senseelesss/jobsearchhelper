@@ -2,6 +2,8 @@
 
 import fcntl
 import json
+
+from job_radar.control.telemetry import timed
 import hashlib
 import math
 import subprocess
@@ -91,6 +93,7 @@ class SearchService:
         quote["fingerprint"] = hashlib.sha256(json.dumps(quote, sort_keys=True).encode()).hexdigest()
         return quote
 
+    @timed("search_dispatch")
     def start(self, selection="all", pages=1, *, mode="quick", confirmation=None):
         if mode not in {"quick", "full"}:
             raise ValueError("Invalid search mode")

@@ -137,3 +137,11 @@ contains the deployment procedure. No host was deployed during RC development.
 Detailed [Telegram operations](docs/TELEGRAM_CONTROL_CENTER.md), [collection engine](docs/COLLECTION_V2.md),
 [application policy](docs/APPLICATION_PRIORITY.md), [legacy commands](docs/OPERATIONS.md)
 and [historical release notes](docs/RELEASE_v1.1.0.md) remain available.
+
+### Telegram v3 reliability increment
+
+The `feat/telegram-experience-v3` branch adds independent callback acknowledgement,
+content-free latency telemetry, rate-limit cooldowns and context-preserving filter
+navigation. This is a partial v3 delivery; Candidate Intelligence and the Mini App
+are not implemented yet. See the [Ukrainian implementation report, benchmarks and
+acceptance commands](docs/TELEGRAM_EXPERIENCE_V3.md).

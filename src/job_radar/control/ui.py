@@ -2,12 +2,14 @@
 
 import json
 import logging
+import time
 from datetime import datetime, timezone
 from urllib.parse import urlsplit
 
+from job_radar.control.telemetry import record, timed
 from job_radar.control.catalog import label, tr
 from job_radar.control.jobs import FILTERS, SORTS, VIEWS
-from job_radar.telegram import TelegramRejectedRequest, process_callback
+from job_radar.telegram import TelegramRateLimited, TelegramRejectedRequest, process_callback
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +45,9 @@ class ControlCenter:
         self.store, self.repository = jobs.store, jobs.repository
         self.owner_id, self.chat_id = owner_id, str(chat_id)
         self.message_id = None
+        self._received_at = None
         self.language = "uk"
+        self._pruned_at = None
 
     def t(self, key, **values):
         return tr(self.language, key, **values)
@@ -60,7 +64,11 @@ class ControlCenter:
             "callback_data": self.store.token({"action": action, **values}),
         }
 
+    @timed("message_delivery")
     def show(self, text, rows=()):
+        if self._received_at is not None:
+            record("first_response_ready", time.perf_counter() - self._received_at)
+            self._received_at = None
         markup = {"inline_keyboard": list(rows)}
         if self.message_id is None:
             self.message_id = self.transport.send_message(self.chat_id, clip(text), markup)
@@ -68,6 +76,8 @@ class ControlCenter:
         try:
             self.transport.edit_message(self.chat_id, self.message_id, clip(text), markup)
         except TelegramRejectedRequest as error:
+            if isinstance(error, TelegramRateLimited):
+                raise
             if getattr(error, "not_modified", False):
                 return
             # A definite rejection permits a replacement. Ambiguous network errors do not.
@@ -76,29 +86,50 @@ class ControlCenter:
     def nav(self, action="home", **values):
         return [self.b("back", action, **values), self.b("menu", "home")]
 
-    def handle(self, update):
+    def authorized(self, update):
+        callback = update.get("callback_query")
+        message = ((callback or {}).get("message") if callback else update.get("message")) or {}
+        sender = (callback or message).get("from") or {}
+        chat = message.get("chat") or {}
+        return (sender.get("id") == self.owner_id
+                and str(chat.get("id")) == self.chat_id
+                and chat.get("type", "private") == "private")
+
+    @timed("callback_ack_api")
+    def acknowledge(self, update):
+        """No SQLite access: safe on the independent acknowledgement executor."""
+        callback = update.get("callback_query")
+        if callback:
+            try:
+                self.transport.answer_callback(
+                    str(callback.get("id", "")),
+                    "" if self.authorized(update) else tr("uk", "denied"),
+                )
+            except Exception as error:
+                # An expired callback or failed acknowledgement must not discard its action.
+                logger.warning("telegram_ack_failed", extra={"error_type": type(error).__name__})
+
+    @timed("handler_total")
+    def handle(self, update, acknowledged=False, received_at=None):
+        self._received_at = received_at or time.perf_counter()
         callback = update.get("callback_query")
         message = (callback or {}).get("message") if callback else update.get("message")
         message = message or {}
-        sender = (callback or message).get("from") or {}
-        chat = message.get("chat") or {}
-        if (
-            sender.get("id") != self.owner_id
-            or str(chat.get("id")) != self.chat_id
-            or chat.get("type", "private") != "private"
-        ):
-            if callback:
-                self.transport.answer_callback(str(callback.get("id", "")), tr("uk", "denied"))
+        if not acknowledged:
+            self.acknowledge(update)
+        if not self.authorized(update):
+            self._received_at = None
             return
-        self.language = self.store.get("language", "uk")
         self.message_id = int(message["message_id"]) if callback else None
         try:
-            self.store.prune()
+            self.language = self.store.get("language", "uk")
+            if self._pruned_at is None or time.monotonic() - self._pruned_at >= 60:
+                self.store.prune()
+                self._pruned_at = time.monotonic()
             if callback:
                 data = str(callback.get("data", ""))
                 if not data.startswith("cc:"):
                     if data.startswith(("applyjob:", "skipjob:")):
-                        self.transport.answer_callback(str(callback.get("id", "")))
                         key = data.split(":", 1)[1]
                         row = self.jobs.detail(key) if len(data.encode()) <= 64 else None
                         if (
@@ -127,9 +158,10 @@ class ControlCenter:
                         callback,
                         model=self.jobs.model,
                         language=self.language,
+                        acknowledged=True,
+                        feedback=lambda text: self.show(text, [self.nav()]),
                     )
                     return
-                self.transport.answer_callback(str(callback.get("id", "")))
                 payload = self.store.resolve(data)
                 if payload is None:
                     self.show(self.t("expired"), [self.nav()])
@@ -150,6 +182,7 @@ class ControlCenter:
             except Exception:
                 logger.warning("telegram_error_reply_failed")
 
+    @timed("callback_route")
     def route(self, p, token=""):
         action = p["action"]
         if action == "home":
@@ -369,7 +402,7 @@ class ControlCenter:
         if navigation:
             buttons.append(navigation)
         options = {key: original.get(key) for key in ("view", "sort", "filters", "since")}
-        buttons.append([self.b("filters", "filters", **options)])
+        buttons.append([self.b("filters", "filters", **options, snapshot=snapshot, page=page)])
         buttons.append([self.b(key, "browse", **{**options, "sort": key}) for key in sorted(SORTS)])
         buttons.extend(
             [
@@ -499,7 +532,7 @@ class ControlCenter:
         self.detail(p["key"], p.get("snapshot"), p.get("position"))
 
     def filters(self, p):
-        options = {key: p.get(key) for key in ("view", "sort", "filters", "since")}
+        options = {key: p.get(key) for key in ("view", "sort", "filters", "since", "snapshot", "page")}
         buttons = [
             [
                 self.b(
@@ -509,8 +542,9 @@ class ControlCenter:
             for field in sorted(FILTERS)
         ]
         buttons += [
-            [self.b("clear", "browse", view=p["view"], sort=p.get("sort", "newest"))],
-            self.nav(),
+            [self.b("clear", "browse", view=p["view"], sort=p.get("sort", "newest"), since=p.get("since"))],
+            (self.nav("page", snapshot=p["snapshot"], page=p.get("page", 0))
+             if p.get("snapshot") else self.nav("browse", **{k: options[k] for k in ("view", "sort", "filters", "since")})),
         ]
         active = "\n".join(
             f"{self.t('status' if k == 'state' else k)}: {label(self.language, v)}"
@@ -519,12 +553,12 @@ class ControlCenter:
         self.show(self.t("filters") + "\n" + active, buttons)
 
     def filter_values(self, p):
-        options = {key: p.get(key) for key in ("view", "sort", "filters", "since", "field")}
+        options = {key: p.get(key) for key in ("view", "sort", "filters", "since", "snapshot", "page", "field")}
         buttons = [
             [self.named(label(self.language, value), "filter_set", value=value, **options)]
             for value in self.jobs.options(p["field"])
         ]
-        self.show(self.t("filters"), buttons + [self.nav()])
+        self.show(self.t("filters"), buttons + [self.nav("filters", **{k: v for k, v in options.items() if k != "field"})])
 
     def settings(self):
         notifications = self.store.get("notifications", True)

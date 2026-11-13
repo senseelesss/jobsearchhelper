@@ -10,6 +10,7 @@ import re
 import time
 from datetime import datetime, timezone
 
+from job_radar.control.telemetry import timed
 from job_radar.availability import is_expired
 from job_radar.candidate import candidate_profile_hash
 from job_radar.eligibility import assess_application, load_policy
@@ -121,6 +122,7 @@ class JobQuery:
         )
         return row
 
+    @timed("query_detail")
     def detail(self, key):
         row = self.repository.connection.execute(
             "SELECT rowid AS _rowid,* FROM jobs WHERE dedupe_key=?", (key,)
@@ -135,6 +137,7 @@ class JobQuery:
         ).fetchone()
         return marker is not None and marker[0] == row["semantic_key"]
 
+    @timed("query_sync")
     def sync(self, force=False):
         if not force and time.monotonic() - self.last_sync < 15:
             return
@@ -203,6 +206,7 @@ class JobQuery:
             PARTITION BY semantic ORDER BY active DESC, full_jd DESC, created DESC, key
         ) AS rank FROM job_index), canonical AS (SELECT * FROM ranked WHERE rank=1) """
 
+    @timed("query_snapshot")
     def snapshot(self, view="all", sort="newest", filters=None, since=None):
         if view not in VIEWS or sort not in SORTS or set(filters or {}) - FILTERS:
             raise ValueError("Invalid browse options")
@@ -248,6 +252,7 @@ class JobQuery:
             )
         return data[3:]
 
+    @timed("query_page")
     def page(self, token, page=0, size=5):
         if page < 0 or page > 100000:
             raise ValueError("Invalid page")
@@ -274,6 +279,7 @@ class JobQuery:
             )
         ]
 
+    @timed("query_statistics")
     def statistics(self):
         if (
             self._statistics is not None

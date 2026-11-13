@@ -24,6 +24,7 @@ def supervise(database: Path, lock_fd: int, timeout: int, run: str, command: lis
     try:
         if state.get("id") != run:
             return
+        state["worker_startup_ms"] = max(0, (time.time() - state["started"]) * 1000) if "started" in state else None
         state["status"] = "running"
         store.set("search", state)
         # No raw collector output is retained or sent to Telegram.
