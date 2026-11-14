@@ -145,3 +145,10 @@ content-free latency telemetry, rate-limit cooldowns and context-preserving filt
 navigation. This is a partial v3 delivery; Candidate Intelligence and the Mini App
 are not implemented yet. See the [Ukrainian implementation report, benchmarks and
 acceptance commands](docs/TELEGRAM_EXPERIENCE_V3.md).
+
+### v3.1 matching refinement
+
+The existing scorer now returns evidence-backed fit dimensions and applies a final
+hard-constraint veto. See [v3.1 architecture, configuration, safe dry-run and budgeted
+commands](docs/MATCHING_V3_1.md). Run `python scripts/evaluate_policy.py` for offline
+regression metrics; these are synthetic-fixture results, not market accuracy.

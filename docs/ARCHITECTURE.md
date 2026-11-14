@@ -203,3 +203,6 @@ does not erase successful batches; replay creates no duplicate source jobs; sour
 full descriptions avoid extra detail requests; historical statuses survive
 migration; private inputs and tokens stay out of Git/logs/exports. Test migrations
 on a copied database before rollout.
+
+Current v3.1 scoring implementation and operating limits are documented in
+[MATCHING_V3_1.md](MATCHING_V3_1.md); earlier target diagrams are historical.
