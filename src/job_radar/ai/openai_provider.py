@@ -110,7 +110,8 @@ class OpenAIProvider:
             "vacancy": _vacancy_payload(vacancy),
             "provisional": provisional,
         }
-        response = self.client.responses.parse(
+        from job_radar.ai.diagnostics import parse_score_response
+        response = parse_score_response(self.client.responses,
             model=self.model,
             input=[
                 {"role": "system", "content": SCORE_SYSTEM_PROMPT},

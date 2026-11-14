@@ -264,7 +264,12 @@ def score_jobs(
         try:
             result = provider.score(profile, vacancy, provisional)
             from job_radar.match_policy import finalize_evaluation
-            validated = finalize_evaluation(result.score, vacancy, profile)
+            from pydantic import ValidationError
+            from job_radar.ai.diagnostics import validation_failure
+            try:
+                validated = finalize_evaluation(result.score, vacancy, profile)
+            except ValidationError as error:
+                raise validation_failure(error, "final_policy") from None
             score = validated.model_copy(
                 update={
                     "provisional": provisional,
