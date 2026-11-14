@@ -19,7 +19,7 @@ from job_radar.availability import group_expired, is_expired
 from job_radar.errors import error_label
 from job_radar.eligibility import assess_application
 
-SCORE_PROMPT_VERSION = "candidate-score-v3-hours-independent"
+SCORE_PROMPT_VERSION = "candidate-score-v3.1-evidence"
 DRAFT_PROMPT_VERSION = "application-draft-v1"
 APPLICATION_RECOMMENDATIONS = {"strong_apply", "apply", "review"}
 
@@ -263,10 +263,12 @@ def score_jobs(
         created_at = _now()
         try:
             result = provider.score(profile, vacancy, provisional)
-            score = result.score.model_copy(
+            from job_radar.match_policy import finalize_evaluation
+            validated = finalize_evaluation(result.score, vacancy, profile)
+            score = validated.model_copy(
                 update={
                     "provisional": provisional,
-                    "score_confidence": ("low" if provisional else result.score.score_confidence),
+                    "score_confidence": ("low" if provisional else validated.score_confidence),
                 }
             )
             cost = _estimated_cost(
@@ -357,7 +359,6 @@ def draft_jobs(
     semantic_keys: set[str] | None = None,
     review_min_score: int = 0,
 ) -> DraftSummary:
-    from job_radar.application_models import JobScore
     accepted = recommendations or APPLICATION_RECOMMENDATIONS
     profile_hash = candidate_profile_hash(profile)
     all_score_rows = [
@@ -372,7 +373,8 @@ def draft_jobs(
     cached = 0
     failed = 0
     for row in all_score_rows:
-        score = JobScore.model_validate_json(row["result_json"])
+        from job_radar.application_models import parse_job_score
+        score = parse_job_score(row["result_json"])
         existing = repository.latest_application_draft(row["score_cache_key"])
         if existing and (
             existing["prompt_version"] != DRAFT_PROMPT_VERSION
@@ -423,7 +425,8 @@ def draft_jobs(
     estimated_cost_usd = 0.0
     errors: list[str] = []
     for row in score_rows:
-        score = JobScore.model_validate_json(row["result_json"])
+        from job_radar.application_models import parse_job_score
+        score = parse_job_score(row["result_json"])
         key = draft_cache_key(
             row["score_cache_key"],
             DRAFT_PROMPT_VERSION,
@@ -636,6 +639,9 @@ def application_queue(
                 "missing_requirements": score_data.get("missing_requirements", []),
                 "risk_flags": score_data.get("risk_flags", []),
                 "role_summary": score_data.get("role_summary", ""),
+                "dimensions": score_data.get("dimensions"),
+                "explanation": score_data.get("explanation", ""),
+                "unknown_requirements": score_data.get("unknown_requirements", []),
                 "cover_letter_language": draft_data.get("cover_letter_language", ""),
                 "cover_letter": draft_data.get("cover_letter", ""),
                 "recruiter_message": draft_data.get("recruiter_message", ""),

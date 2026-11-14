@@ -77,6 +77,9 @@ class JobQuery:
                 "matching_strengths",
                 "missing_requirements",
                 "provisional",
+                "dimensions",
+                "explanation",
+                "unknown_requirements",
             ):
                 row[key] = result.get(key)
             row.update(

@@ -70,6 +70,9 @@ def review_rows(repository, profile_hash=None, model=None, profile=None):
             "provisional",
             "score_status",
             "scored_at",
+            "dimensions",
+            "explanation",
+            "unknown_requirements",
         ):
             row[key] = current.get(key)
         row.update(assess_application(row, profile))
@@ -123,12 +126,8 @@ def _reviewable(row):
 
 
 def _scoreable(row):
-    return _reviewable(row) and row.get("role_fit") in {
-        "strong",
-        "secondary",
-        "relevant",
-        "adjacent",
-    }
+    from job_radar.eligibility import evaluation_candidate
+    return evaluation_candidate(row)
 
 
 def _already_alerted(repository, row, chat_hash, include_unknown=True):
@@ -196,6 +195,12 @@ def _enrich_review(repository, rows, client, limit, profile, model, new_keys, tu
         row["fetched_at"] or "", row["first_seen_at"],
         row["semantic_key"],
     ))
+    backlog = [row for row in selected if not has_full_description(row)
+               and row["semantic_key"] not in new_keys]
+    if backlog and limit and turn % 3 == 1:
+        oldest = min(backlog, key=lambda row: (row["first_seen_at"], row["semantic_key"]))
+        selected.remove(oldest)
+        selected.insert(0, oldest)
     stale = next((row for row in selected if has_full_description(row)), None)
     if stale is not None and (limit > 1 or turn % 3 == 0):
         selected.remove(stale)

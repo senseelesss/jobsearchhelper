@@ -458,6 +458,8 @@ class ControlCenter:
                 f"{self.t('stored_score')}: {row['historical_score']}/100",
                 f"{self.t('cost')}: {row['historical_cost']}",
             ]
+        if row.get("explanation"):
+            text.append(clip(row["explanation"], 500))
         evidence = row.get("hours_evidence")
         if evidence and evidence != "not stated":
             text.append(clip(evidence, 300))
