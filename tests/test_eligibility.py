@@ -1,5 +1,4 @@
 import json
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -312,7 +311,7 @@ def test_pending_low_backlog_gets_a_slot_amid_new_high_jobs(tmp_path):
     with JobRepository(tmp_path / "jobs.db") as repo:
         repo.connection.execute(
             "UPDATE jobs SET created_at=?",
-            ((datetime.now(timezone.utc) - timedelta(days=10)).isoformat(),),
+            ("2026-10-26T00:00:00+00:00",),
         )
         repo.connection.commit()
     telegram = Telegram()

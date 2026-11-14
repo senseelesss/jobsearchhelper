@@ -797,3 +797,114 @@ def test_verified_legacy_digest_identity(rig, changed):
     assert rig.repository.application_for("linkedin:0")["state"] == (
         "not_applied" if changed else "applied"
     )
+
+
+@pytest.mark.parametrize("data", ["cc:expired", "applyjob:linkedin:0", "cover:semantic-123"])
+def test_ack_precedes_every_private_database_operation(rig, monkeypatch, data):
+    def blocked(*args, **kwargs):
+        assert len(rig.transport.answers) == 1
+        raise RuntimeError("simulated locked database")
+    monkeypatch.setattr(rig.store, "get", blocked)
+    callback(rig, data)
+    assert len(rig.transport.answers) == 1
+
+
+def test_ack_failure_does_not_discard_action(rig, monkeypatch):
+    token = payload(rig, action="language", value="de")
+    monkeypatch.setattr(rig.transport, "answer_callback", Mock(side_effect=TimeoutError))
+    callback(rig, token)
+    assert rig.store.get("language") == "de"
+
+
+def test_housekeeping_is_throttled_but_expiry_remains_enforced(rig, monkeypatch):
+    prune = Mock(wraps=rig.store.prune)
+    monkeypatch.setattr(rig.store, "prune", prune)
+    callback(rig, payload(rig, action="settings"))
+    callback(rig, payload(rig, action="settings"))
+    expired = rig.store.token({"action": "language", "value": "de"}, ttl=-1)
+    callback(rig, expired)
+    assert prune.call_count == 1
+    assert rig.t("expired") in rig.transport.messages[-1][0]
+    assert rig.store.get("language", "uk") == "uk"
+
+
+def test_rate_limited_edit_never_sends_replacement(rig, monkeypatch):
+    from job_radar.telegram import TelegramRateLimited
+    rig.message_id = 1
+    monkeypatch.setattr(rig.transport, "edit_message", Mock(side_effect=TelegramRateLimited(10)))
+    with pytest.raises(TelegramRateLimited):
+        rig.show("retry later")
+    assert rig.transport.messages == []
+
+
+def test_missing_legacy_draft_still_has_visible_feedback(rig):
+    callback(rig, "cover:semantic-123")
+    assert len(rig.transport.answers) == 1
+    assert rig.t("unavailable") in rig.transport.messages[-1][0]
+
+
+@pytest.mark.parametrize("language", ["uk", "de", "en"])
+def test_filter_back_preserves_exact_page_and_search_scope(rig, language):
+    rig.language = language
+    rig.store.set("language", language)
+    scope = {"after": 0, "through": 12}
+    snapshot = rig.jobs.snapshot("all", "priority_sort", {"source": "linkedin"}, scope)
+    rig.page(snapshot, 1)
+    click(rig, "filters")
+    click(rig, "hours")
+    click(rig, "back")  # values -> filter categories
+    assert rig.t("filters") in rig.transport.messages[-1][0]
+    click(rig, "back")  # categories -> exact snapshot page
+    assert rig.t("page", page=2) in rig.transport.messages[-1][0]
+    click(rig, "filters")
+    click(rig, "clear")
+    tokens = [b["callback_data"] for row in rig.transport.messages[-1][1]["inline_keyboard"]
+              for b in row if b.get("callback_data")]
+    details = [rig.store.resolve(token) for token in tokens]
+    detail = next(p for p in details if p["action"] == "detail")
+    new_snapshot = rig.store.resolve("cc:" + detail["snapshot"])
+    assert new_snapshot["since"] == scope
+    assert new_snapshot["sort"] == "priority_sort"
+    assert new_snapshot["filters"] == {}
+
+
+@pytest.mark.parametrize("language", ["uk", "de", "en"])
+def test_navigation_inventory_has_templates_and_working_routes(rig, language, monkeypatch):
+    """Traverse every generated action type; bounded values prevent cyclic menu expansion."""
+    from collections import deque
+    rig.language = language
+    rig.store.set("language", language)
+    monkeypatch.setattr(rig.search, "start", lambda *args, **kwargs: {"status": "queued"})
+    monkeypatch.setattr(rig.search, "quote", lambda: {
+        "available": True, "maximum": 0, "run_cap": 0, "day_cap": 0,
+        "model": "offline-test", "fingerprint": "offline",
+    })
+    # Route directly so the test can assert rendering without consuming stale ledger buttons.
+    pending = deque([{"action": "home"}])
+    seen = set()
+    while pending:
+        action = pending.popleft()
+        identity = (action["action"], action.get("field"), action.get("view"))
+        if identity in seen:
+            continue
+        seen.add(identity)
+        rig.route(action, rig.store.token(action))
+        text, markup = rig.transport.messages[-1]
+        assert text and text != rig.t("error") and "{count}" not in text
+        for row in markup["inline_keyboard"]:
+            for button in row:
+                assert button["text"]
+                if "url" in button:
+                    assert public_url(button["url"])
+                else:
+                    assert len(button["callback_data"].encode()) <= 64
+                    target = rig.store.resolve(button["callback_data"])
+                    assert target is not None
+                    pending.append(target)
+    actions = {key[0] for key in seen}
+    assert actions == {
+        "home", "search", "browse", "settings", "statistics", "page", "detail", "status",
+        "language", "notifications", "default_view", "select", "depth", "full_search",
+        "confirm_full_search", "start_search", "run", "filters", "filter_values", "filter_set",
+        "ai", "draft",
+    }

@@ -351,7 +351,6 @@ def _score(args: argparse.Namespace, settings: Settings) -> None:
         SCORE_PROMPT_VERSION,
         score_cache_key,
         score_jobs,
-        scoring_candidates,
     )
 
     profile = load_candidate_profile(settings.candidate_profile_path)
@@ -360,28 +359,12 @@ def _score(args: argparse.Namespace, settings: Settings) -> None:
         if args.dry_run:
             profile_hash = candidate_profile_hash(profile)
             only = None if args.all_active else args.only
-            candidates = scoring_candidates(repository, only)
-            if args.retry_failed:
-                candidates = [
-                    vacancy
-                    for vacancy in candidates
-                    if repository.failed_job_score(
-                        str(vacancy["semantic_key"]),
-                        profile_hash,
-                        str(vacancy["description_hash"]),
-                        SCORE_PROMPT_VERSION,
-                        settings.openai_model,
-                    )
-                    and not repository.reusable_job_score(
-                        str(vacancy["semantic_key"]),
-                        profile_hash,
-                        str(vacancy["description_hash"]),
-                        SCORE_PROMPT_VERSION,
-                        settings.openai_model,
-                    )
-                ]
-            if args.limit is not None:
-                candidates = candidates[: args.limit]
+            from job_radar.matching import scoring_plan
+            candidates, plan = scoring_plan(
+                repository, profile, settings.openai_model, only=only,
+                limit=args.limit, retry_failed=args.retry_failed,
+            )
+            print(f"Cached: {plan['cached']}; deferred: {plan['deferred']}")
             for vacancy in candidates:
                 cache_key = score_cache_key(
                     str(vacancy["semantic_key"]),

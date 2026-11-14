@@ -2,6 +2,9 @@
 
 
 def error_label(error):
+    from job_radar.ai.diagnostics import ScoringResponseError
+    if isinstance(error, ScoringResponseError):
+        return str(error)
     label = type(error).__name__
     status = getattr(error, "status_code", None)
     if isinstance(status, int):

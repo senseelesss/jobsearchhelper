@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
 from job_radar.ai.openai_provider import OpenAIProvider
-from job_radar.application_models import ApplicationDraftContent, JobScore
+from job_radar.application_models import ApplicationDraftContent, JobScore, MatchEvaluation
 
 
 def score() -> JobScore:
@@ -24,8 +24,11 @@ class FakeResponses:
     def parse(self, **kwargs: object) -> SimpleNamespace:
         self.calls.append(kwargs)
         text_format = kwargs["text_format"]
-        if text_format is JobScore:
-            output = score()
+        if text_format is MatchEvaluation:
+            output = MatchEvaluation(**score().model_dump(), dimensions={
+                name: {"status": "unknown", "vacancy_evidence": [], "candidate_evidence": [], "explanation": "Not stated"}
+                for name in ("technical", "experience", "education", "hours", "language", "location", "career")
+            }, unknown_requirements=[], explanation="Needs review")
         else:
             output = ApplicationDraftContent(
                 cover_letter_language="en",
@@ -76,7 +79,7 @@ def test_openai_provider_separates_score_and_draft_responses() -> None:
         draft_result.draft,
     )
 
-    assert responses.calls[0]["text_format"] is JobScore
+    assert responses.calls[0]["text_format"] is MatchEvaluation
     assert responses.calls[1]["text_format"] is ApplicationDraftContent
     assert responses.calls[2]["text_format"] is ApplicationDraftContent
     assert score_result.score.match_score == 82

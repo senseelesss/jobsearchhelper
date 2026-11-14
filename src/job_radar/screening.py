@@ -94,7 +94,7 @@ def screen_job(
                                 or detailed_location == "austria_remote")
     if detailed_location == "mismatch":
         location_is_accepted = False
-    location_is_unknown = not normalized_location or (remote_matches and not austria_matches)
+    location_is_unknown = not normalized_location or (remote_matches and not austria_matches) or detailed_location == "unknown"
     if not location_is_accepted and (not location_is_unknown or detailed_location == "mismatch"):
         reasons.append(
             {

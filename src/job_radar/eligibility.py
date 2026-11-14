@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import re
 
+from job_radar.requirements import education_requirement
 from job_radar.availability import is_expired
 from job_radar.work_hours import assess_hours, job_sections
 
@@ -238,6 +239,8 @@ def assess_location(row, profile=None):
         fit = "eu_remote_verified" if verified else "eu_remote_unverified"
     elif remote:
         fit = "remote_unverified"
+    elif re.search(r"\b(?:Mödling|Moedling|Klosterneuburg|Schwechat|Brunn am Gebirge|Wiener Neudorf|Perchtoldsdorf|Vösendorf|Korneuburg)\b", location, re.I):
+        fit = "unknown"  # Commuting feasibility is a preference to review, not a fact.
     elif location.strip():
         fit = "mismatch"
     else:
@@ -267,6 +270,10 @@ def assess_role(row, profile=None, policy=None):
     technical_title = re.search(
         r"\b(?:software|developer|entwickler\w*|engineer|informatik\w*|IT|data|QA|automation|automatisierung|Odoo)\b", title, re.I,
     )
+    nonsoftware = re.search(r"\b(?:business consultant|management consultant|unternehmensberater|mechanical engineer|civil engineer|bauingenieur|maschinenbau|SPS|PLC|industrial automation)\b", title, re.I)
+    software_context = re.search(r"\b(?:software|backend|python developer|softwareentwickler)\b", title, re.I)
+    if nonsoftware and not software_context:
+        return {"role_fit": "unrelated", "role_evidence": [nonsoftware[0]], "technical_terms": []}
     if clinical and not technical_title:
         return {"role_fit": "unrelated", "role_evidence": [clinical[0]], "technical_terms": []}
     strong = _matches(text, policy["strong_technologies"])
@@ -349,6 +356,16 @@ def assess_application(row, profile=None, policy=None, now=None):
     location = assess_location(row, profile)
     role = assess_role(row, profile, policy)
     reasons = []
+    education = education_requirement(row, profile)
+    if education:
+        reasons.append(education)
+    qualifications = profile.get("verified_qualifications") or {}
+    years = qualifications.get("professional_experience_years")
+    if (qualifications.get("confirmed") is True and isinstance(years, (int, float))
+            and not isinstance(years, bool) and years >= 0
+            and senior["required_years"] is not None and senior["required_years"] > years):
+        reasons.append({"code": "experience_mismatch", "detail": "Required professional experience exceeds confirmed candidate experience",
+                        "hard": True, "evidence": senior["seniority_evidence"]})
 
     def reason(code, text, hard=False, evidence=None):
         reasons.append({"code": code, "detail": text, "hard": hard, "evidence": evidence or []})
@@ -511,3 +528,15 @@ def application_sort_key(row):
         row.get("first_seen_at") or row.get("created_at", ""),
         row.get("dedupe_key", ""),
     )
+
+
+def evaluation_candidate(row):
+    """Shared inexpensive gate: ambiguous software work may reach bounded AI review."""
+    if (is_expired(row) or row.get("screening_status") not in {"eligible", "review"}
+            or row.get("application_eligibility") == "ineligible"
+            or row.get("application_state") not in {None, "", "not_applied", "saved"}):
+        return False
+    return row.get("role_fit") in {"strong", "secondary", "relevant", "adjacent", "other_stack"} or (
+        row.get("role_fit") == "unknown" and bool(re.search(
+            r"\b(?:software|backend|developer|entwickler\w*|data engineer|devops)\b",
+            str(row.get("title") or ""), re.I)))

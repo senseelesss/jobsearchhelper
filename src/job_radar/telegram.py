@@ -1,5 +1,7 @@
 import json
 import re
+import math
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -46,9 +48,18 @@ class TelegramRejectedRequest(RuntimeError):
     """A definitive HTTP 4xx rejection; no message was accepted."""
 
 
+class TelegramRateLimited(TelegramRejectedRequest):
+    """Definite non-delivery; caller must not replace an edit with a send."""
+
+    def __init__(self, retry_after=1):
+        super().__init__("Telegram rate limit")
+        self.retry_after = retry_after
+
+
 class TelegramApiClient:
     def __init__(self, bot_token: str) -> None:
         self._base_url = f"https://api.telegram.org/bot{bot_token}"
+        self._retry_at = 0.0
 
     def send_message(
         self,
@@ -82,6 +93,7 @@ class TelegramApiClient:
         self._call(
             "answerCallbackQuery",
             {"callback_query_id": callback_query_id, "text": text},
+            timeout=3,
         )
 
     def get_updates(
@@ -102,6 +114,14 @@ class TelegramApiClient:
         payload: dict[str, Any],
         timeout: int = 30,
     ) -> Any:
+        from job_radar.control.telemetry import span
+        remaining = self._retry_at - time.monotonic()
+        if remaining > 0:
+            raise TelegramRateLimited(math.ceil(remaining))
+        with span("telegram_api_" + method):
+            return self._request(method, payload, timeout)
+
+    def _request(self, method, payload, timeout):
         request = urllib.request.Request(
             f"{self._base_url}/{method}",
             data=json.dumps(payload).encode(),
@@ -112,6 +132,16 @@ class TelegramApiClient:
             with urllib.request.urlopen(request, timeout=timeout) as response:
                 result = json.loads(response.read().decode())
         except urllib.error.HTTPError as error:
+            if error.code == 429:
+                retry_after = 1
+                try:
+                    retry_after = max(1, int(
+                        json.loads(error.read(4096)).get("parameters", {}).get("retry_after", 1)
+                    ))
+                except (ValueError, TypeError, OSError):
+                    pass
+                self._retry_at = max(self._retry_at, time.monotonic() + retry_after)
+                raise TelegramRateLimited(retry_after) from None
             kind = TelegramRejectedRequest if 400 <= error.code < 500 else RuntimeError
             failure = kind(f"Telegram API HTTP {error.code} during {method}")
             if method == "editMessageText" and error.code == 400:
@@ -341,8 +371,11 @@ def process_callback(
     profile_hash: str | None = None,
     model: str | None = None,
     language: str | None = None,
+    acknowledged: bool = False,
+    feedback=None,
 ) -> None:
     def answer_callback(query_id, text=""):
+        failure = text in {"Ignored", "Unknown action", "Vacancy unavailable", "Cover letter unavailable"}
         if language is not None:
             from job_radar.control.catalog import tr
             key = {"Ignored": "denied", "Unknown action": "expired",
@@ -350,6 +383,10 @@ def process_callback(
                    "Skipped": "skipped", "Cover letter unavailable": "no_draft",
                    "Cover letter sent": "draft_sent"}.get(text, "error")
             text = tr(language, key)
+        if acknowledged:
+            if failure and feedback is not None:
+                feedback(text)
+            return
         transport.answer_callback(query_id, text)
 
     callback_id = str(callback.get("id", ""))
